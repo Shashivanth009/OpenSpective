@@ -84,10 +84,10 @@ app.get('/api/v1/health', async (c) => {
 // ---- Routes ----
 app.route('/api/v1/auth', authRouter);
 app.route('/api/v1/investigations', investigationsRouter);
-app.route('/api/v1', reportsRouter);
 app.route('/api/v1/account', accountRouter);
 app.route('/api/v1/classify', classifyRouter);
 app.route('/api/v1/modules', modulesRouter);
+app.route('/api/v1', reportsRouter);
 
 // ---- 404 handler ----
 app.notFound((c) => {

@@ -201,7 +201,7 @@ ${aiAnalysis ? `<h2>AI Analysis <small>(model: ${aiAnalysis['model']})</small></
 });
 
 // GET report by ID (R2-backed)
-reportsRouter.get('/:reportId', requireAuth, async (c) => {
+reportsRouter.get('/reports/:reportId', requireAuth, async (c) => {
   const { reportId } = c.req.param();
   const user = c.get('user')!;
 

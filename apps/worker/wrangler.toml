@@ -17,6 +17,7 @@ FRONTEND_URL = "https://openspective.vercel.app"
 binding = "DB"
 database_name = "openspective-db"
 database_id = "YOUR_D1_DATABASE_ID"
+migrations_dir = "../../migrations"
 
 # R2 Bucket binding
 [[r2_buckets]]

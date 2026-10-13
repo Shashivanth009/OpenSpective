@@ -1,0 +1,10 @@
+# Local development secrets — DO NOT COMMIT
+# Copy this file to .dev.vars and fill in your actual values
+
+JWT_SECRET=change_this_to_a_long_random_secret_at_least_32_chars
+VIRUSTOTAL_API_KEY=
+SHODAN_API_KEY=
+HAVE_I_BEEN_PWNED_API_KEY=
+GITHUB_TOKEN=
+IPINFO_TOKEN=
+FRONTEND_URL=http://localhost:5173

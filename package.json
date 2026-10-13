@@ -1,0 +1,30 @@
+{
+  "name": "openspective",
+  "private": true,
+  "version": "0.1.0",
+  "description": "OpenSpective — AI-Powered OSINT, Public Intelligence & Passive Reconnaissance Platform",
+  "workspaces": [
+    "apps/web",
+    "apps/worker",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/web",
+    "dev:worker": "npm run dev --workspace=apps/worker",
+    "build": "npm run build --workspace=packages/shared && npm run build --workspace=apps/web",
+    "build:worker": "npm run build --workspace=apps/worker",
+    "typecheck": "npm run typecheck --workspace=packages/shared && npm run typecheck --workspace=apps/web && npm run typecheck --workspace=apps/worker",
+    "lint": "npm run lint --workspace=apps/web",
+    "test": "npm run test --workspace=apps/worker",
+    "db:migrate:local": "npx wrangler d1 migrations apply openspective-db --local",
+    "db:migrate:remote": "npx wrangler d1 migrations apply openspective-db --remote",
+    "deploy:worker": "npm run deploy --workspace=apps/worker",
+    "deploy:web": "npm run deploy --workspace=apps/web"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

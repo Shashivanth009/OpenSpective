@@ -2,8 +2,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './AuthContext.tsx';
 import Layout from './components/Layout.tsx';
 import LandingPage from './pages/Landing.tsx';
-import LoginPage from './pages/Login.tsx';
-import SignupPage from './pages/Signup.tsx';
 import DashboardPage from './pages/Dashboard.tsx';
 import InvestigatePage from './pages/Investigate.tsx';
 import InvestigationPage from './pages/InvestigationDetail.tsx';
@@ -27,11 +25,9 @@ export default function App() {
             <Route path="/terms" element={<TermsPage />} />
           </Route>
 
-          {/* Auth routes (no sidebar) */}
-          <Route element={<Layout minimal />}>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/signup" element={<SignupPage />} />
-          </Route>
+          {/* Auth routes redirected directly to /investigate */}
+          <Route path="/login" element={<Navigate to="/investigate" replace />} />
+          <Route path="/signup" element={<Navigate to="/investigate" replace />} />
 
           {/* App routes with sidebar */}
           <Route element={<Layout showSidebar />}>

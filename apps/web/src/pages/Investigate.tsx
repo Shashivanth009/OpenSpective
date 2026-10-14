@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search, Shield, CheckCircle2, AlertCircle, Sparkles,
-  Globe, Mail, User, Network, Building, Link2, ArrowRight
+  Globe, Mail, User, Network, Building, Link2, ArrowRight, Phone
 } from 'lucide-react';
 import * as api from '../api.ts';
 
@@ -13,6 +13,9 @@ const MODULES_CONFIG = [
   { id: 'ipinfo', name: 'IP Geolocation & ASN', desc: 'Country, city, ASN number, organization route mapping', types: ['ip', 'domain'] },
   { id: 'virustotal', name: 'VirusTotal Threat Intel', desc: 'Reputation analysis across 70+ threat intelligence engines (requires key)', types: ['domain', 'ip', 'url', 'email'] },
   { id: 'github', name: 'GitHub Public Intelligence', desc: 'Public repositories, contributors, code associations', types: ['organization', 'username', 'email', 'domain'] },
+  { id: 'person_search', name: 'Public Person & Entity Search', desc: 'GitHub full name matches, Wikipedia articles, Wikidata knowledge graph, HackerNews mentions', types: ['person'] },
+  { id: 'username_presence', name: 'Cross-Platform Username Footprint', desc: 'Verifies presence across GitHub, GitLab, HackerNews, PyPI, NPM, Keybase, DEV, and Hashnode', types: ['username', 'person'] },
+  { id: 'email_identity', name: 'Email & Developer Attribution', desc: 'Discovers verified git commits, real author names, linked GitHub profiles, Gravatar accounts, and handle footprints', types: ['email'] },
   { id: 'url_metadata', name: 'URL Metadata & Headers', desc: 'HTTP response status, title, redirects, headers (single bounded request)', types: ['url'] },
 ];
 
@@ -24,7 +27,7 @@ export default function InvestigatePage() {
   const [target, setTarget] = useState(initialQuery);
   const [targetType, setTargetType] = useState<string>('auto');
   const [selectedModules, setSelectedModules] = useState<string[]>([
-    'dns', 'rdap', 'certificate_transparency', 'ipinfo', 'github', 'url_metadata'
+    'dns', 'rdap', 'certificate_transparency', 'ipinfo', 'github', 'person_search', 'username_presence', 'email_identity', 'url_metadata'
   ]);
   const [enableAi, setEnableAi] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -95,8 +98,10 @@ export default function InvestigatePage() {
       case 'ip': return <Network size={16} />;
       case 'email': return <Mail size={16} />;
       case 'username': return <User size={16} />;
+      case 'person': return <User size={16} />;
       case 'organization': return <Building size={16} />;
       case 'url': return <Link2 size={16} />;
+      case 'phone': return <Phone size={16} />;
       default: return <Search size={16} />;
     }
   };
@@ -174,7 +179,7 @@ export default function InvestigatePage() {
           <div style={{ marginTop: 'var(--space-5)' }}>
             <label className="input-label" style={{ marginBottom: 'var(--space-2)' }}>Override Target Type (optional)</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-              {['auto', 'domain', 'ip', 'email', 'username', 'organization', 'url'].map((t) => (
+              {['auto', 'domain', 'ip', 'email', 'username', 'person', 'organization', 'url', 'phone'].map((t) => (
                 <button
                   key={t}
                   type="button"

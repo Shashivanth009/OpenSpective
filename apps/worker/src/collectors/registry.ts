@@ -104,6 +104,35 @@ export const COLLECTORS: CollectorDefinition[] = [
     limitations: ['Single bounded request only. Respects robots.txt. No crawling.'],
     isConfigured: () => true,
   },
+  {
+    name: 'person_search',
+    displayName: 'Public Person & Entity Search',
+    description: 'Searches public indices (GitHub users by name, Wikipedia articles, Wikidata knowledge graph, HackerNews mentions).',
+    targetTypes: ['person'],
+    requiresCredentials: false,
+    credentialKey: 'GITHUB_TOKEN',
+    limitations: ['Name matching across open public indices. Does not access restricted identity databases.'],
+    isConfigured: () => true,
+  },
+  {
+    name: 'username_presence',
+    displayName: 'Cross-Platform Username Footprint',
+    description: 'Checks profile availability across GitHub, GitLab, HackerNews, PyPI, NPM, Keybase, DEV, and Hashnode.',
+    targetTypes: ['username', 'person'],
+    requiresCredentials: false,
+    limitations: ['Public HTTP status verification. Subject to third-party web rate limits.'],
+    isConfigured: () => true,
+  },
+  {
+    name: 'email_identity',
+    displayName: 'Email & Developer Attribution',
+    description: 'Discovers verified git commits, real author names, linked GitHub profiles, Gravatar accounts, and handle footprints.',
+    targetTypes: ['email'],
+    requiresCredentials: false,
+    credentialKey: 'GITHUB_TOKEN',
+    limitations: ['Searches public repositories and open registries only.'],
+    isConfigured: () => true,
+  },
 ];
 
 // Get collectors applicable to a target type

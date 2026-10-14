@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
 import { User, Key, Shield, Moon, Sun } from 'lucide-react';
-import { useAuth } from '../AuthContext.tsx';
 import * as api from '../api.ts';
 
 export default function SettingsPage() {
-  const { user } = useAuth();
   const [usage, setUsage] = useState<any>(null);
   const [health, setHealth] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -58,23 +56,23 @@ export default function SettingsPage() {
         {/* Profile Card */}
         <div className="card" style={{ padding: 'var(--space-6)' }}>
           <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, marginBottom: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            <User size={20} style={{ color: 'var(--color-accent)' }} /> Account Profile
+            <User size={20} style={{ color: 'var(--color-accent)' }} /> Access & Profile
           </h2>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 'var(--space-4)' }}>
             <div>
-              <label className="input-label">Email Address</label>
-              <input type="text" className="input" disabled value={user?.email || 'guest@openspective.local'} />
+              <label className="input-label">Access Mode</label>
+              <input type="text" className="input" disabled value="100% Free & Open Access" />
             </div>
 
             <div>
-              <label className="input-label">Display Name</label>
-              <input type="text" className="input" disabled value={user?.displayName || 'Intelligence Analyst'} />
+              <label className="input-label">Authentication Status</label>
+              <input type="text" className="input" disabled value="Public Access (No Sign-in Required)" />
             </div>
 
             <div>
-              <label className="input-label">Account Identifier</label>
-              <input type="text" className="input" disabled value={user?.id || 'guest-session'} style={{ fontFamily: 'var(--font-mono)' }} />
+              <label className="input-label">Platform Edition</label>
+              <input type="text" className="input" disabled value="Community Open Edition" style={{ fontFamily: 'var(--font-mono)' }} />
             </div>
           </div>
         </div>

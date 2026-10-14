@@ -5,7 +5,6 @@ import {
   CheckCircle, AlertTriangle, Lock, Zap, Eye, Database
 } from 'lucide-react';
 import { useState } from 'react';
-import { useAuth } from '../AuthContext.tsx';
 import * as api from '../api.ts';
 
 const TARGET_TYPE_EXAMPLES = [
@@ -60,7 +59,6 @@ const PRINCIPLES = [
 ];
 
 export default function LandingPage() {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const [input, setInput] = useState('');
   const [classifying, setClassifying] = useState(false);
@@ -184,25 +182,12 @@ export default function LandingPage() {
 
             {/* CTA */}
             <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'center', marginTop: 'var(--space-10)', flexWrap: 'wrap' }}>
-              {user ? (
-                <>
-                  <Link to="/dashboard" className="btn btn-primary btn-lg">
-                    <LayoutDashboard size={18} /> Go to Dashboard
-                  </Link>
-                  <Link to="/investigate" className="btn btn-secondary btn-lg">
-                    <Search size={18} /> New Investigation
-                  </Link>
-                </>
-              ) : (
-                <>
-                  <Link to="/signup" className="btn btn-primary btn-lg" id="hero-signup-btn">
-                    Get Started Free <ArrowRight size={18} />
-                  </Link>
-                  <Link to="/login" className="btn btn-secondary btn-lg">
-                    Sign In
-                  </Link>
-                </>
-              )}
+              <Link to="/investigate" className="btn btn-primary btn-lg" id="hero-investigate-btn">
+                Start Investigation <ArrowRight size={18} />
+              </Link>
+              <Link to="/dashboard" className="btn btn-secondary btn-lg">
+                <LayoutDashboard size={18} /> Command Dashboard
+              </Link>
             </div>
           </div>
         </div>
@@ -263,7 +248,7 @@ export default function LandingPage() {
                 OpenSpective is designed for lawful open-source intelligence research using publicly available data only.
                 It must not be used for unauthorized surveillance, doxxing, harassment, or any illegal purpose.
                 All investigation results include source attribution and represent data available at collection time.
-                Guest investigations are rate-limited; sign up for a free account for increased access.
+                OpenSpective is 100% free and open for public reconnaissance and lawful security research.
               </div>
             </div>
           </div>
@@ -271,21 +256,19 @@ export default function LandingPage() {
       </section>
 
       {/* CTA */}
-      {!user && (
-        <section style={{ padding: 'var(--space-20) 0', textAlign: 'center' }}>
-          <div className="container">
-            <h2 style={{ fontSize: 'var(--text-3xl)', fontWeight: 800, letterSpacing: '-0.03em' }}>
-              Start your first investigation
-            </h2>
-            <p style={{ color: 'var(--color-text-secondary)', marginTop: 'var(--space-3)', marginBottom: 'var(--space-8)', fontSize: 'var(--text-lg)' }}>
-              Free account. No credit card required. Built on Cloudflare free tier.
-            </p>
-            <Link to="/signup" className="btn btn-primary btn-xl">
-              Create Free Account <ArrowRight size={20} />
-            </Link>
-          </div>
-        </section>
-      )}
+      <section style={{ padding: 'var(--space-20) 0', textAlign: 'center' }}>
+        <div className="container">
+          <h2 style={{ fontSize: 'var(--text-3xl)', fontWeight: 800, letterSpacing: '-0.03em' }}>
+            Start your first investigation
+          </h2>
+          <p style={{ color: 'var(--color-text-secondary)', marginTop: 'var(--space-3)', marginBottom: 'var(--space-8)', fontSize: 'var(--text-lg)' }}>
+            100% free and open for everyone. No sign-in or account required.
+          </p>
+          <Link to="/investigate" className="btn btn-primary btn-xl">
+            Launch Free Investigation <ArrowRight size={20} />
+          </Link>
+        </div>
+      </section>
     </div>
   );
 }

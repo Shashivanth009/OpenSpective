@@ -11,6 +11,8 @@ import { collectCertificateTransparency } from './collectors/certificate.ts';
 import { collectIpInfo } from './collectors/ipinfo.ts';
 import { collectGitHubOrg, collectGitHubUser } from './collectors/github.ts';
 import { collectVtDomain, collectVtIp, collectVtUrl } from './collectors/virustotal.ts';
+import { collectPersonSearch, checkUsernamePresence } from './collectors/person.ts';
+import { collectEmailIdentity } from './collectors/email_identity.ts';
 
 interface OrchestratorContext {
   investigationId: string;
@@ -602,6 +604,255 @@ async function runUrlMetadataCollector(ctx: OrchestratorContext, url: string): P
   }
 }
 
+// ---- Person Search runner ----
+async function runPersonSearchCollector(ctx: OrchestratorContext, name: string): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'person_search');
+  try {
+    const result = await collectPersonSearch(name, ctx.env.GITHUB_TOKEN);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = result.collectedAt;
+
+    // 1. GitHub User Matches
+    for (const gh of result.github) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'public_profile',
+        subcategory: 'github',
+        type: 'github_user_match',
+        value: gh.displayName || String(gh.metadata?.login ?? name),
+        rawData: { ...gh },
+        confidence: gh.confidence,
+        severity: 'info',
+        sourceUrl: gh.profileUrl,
+        sourceName: gh.source,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: [
+          gh.bio ? `Bio: ${gh.bio}` : null,
+          gh.location ? `Location: ${gh.location}` : null,
+          gh.metadata?.company ? `Company: ${gh.metadata.company}` : null,
+        ].filter(Boolean).join(' | ') || `Public profile: ${gh.profileUrl}`,
+      });
+
+      if (gh.displayName || gh.metadata?.login) {
+        await persistRelationship(ctx.env.DB, {
+          investigationId: ctx.investigationId,
+          fromEntityType: 'person',
+          toEntityType: 'username',
+          fromValue: name,
+          toValue: String(gh.metadata?.login ?? gh.displayName),
+          relationshipType: 'affiliated_with',
+          findingId: null,
+          sourceUrl: gh.profileUrl,
+          confidence: gh.confidence,
+          isInferred: false,
+          collectedAt: ts,
+          fromEntityId: '',
+          toEntityId: '',
+        });
+      }
+    }
+
+    // 2. Wikipedia Articles
+    for (const wiki of result.wikipedia) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'public_record',
+        subcategory: 'wikipedia',
+        type: 'wikipedia_article',
+        value: wiki.displayName || name,
+        rawData: { ...wiki },
+        confidence: wiki.confidence,
+        severity: 'info',
+        sourceUrl: wiki.profileUrl,
+        sourceName: wiki.source,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: wiki.bio ? `Article summary: ${wiki.bio}` : 'Wikipedia entry found.',
+      });
+    }
+
+    // 3. Wikidata Knowledge Graph
+    for (const wd of result.wikidata) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'public_record',
+        subcategory: 'wikidata',
+        type: 'wikidata_entity',
+        value: wd.displayName || name,
+        rawData: { ...wd },
+        confidence: wd.confidence,
+        severity: 'info',
+        sourceUrl: wd.profileUrl,
+        sourceName: wd.source,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: wd.bio ? `Knowledge entity: ${wd.bio}` : 'Wikidata knowledge entity.',
+      });
+    }
+
+    // 4. HackerNews Mentions
+    for (const hn of result.hackernews) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'public_mention',
+        subcategory: 'hackernews',
+        type: 'hackernews_mention',
+        value: hn.displayName || name,
+        rawData: { ...hn },
+        confidence: 'low',
+        severity: 'info',
+        sourceUrl: hn.profileUrl,
+        sourceName: hn.source,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: hn.bio || 'Public mention found in Hacker News discussion.',
+      });
+    }
+
+    // If 0 findings, record structured informative finding
+    if (findings.length === 0) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'system',
+        subcategory: 'passive_recon',
+        type: 'no_records_found',
+        value: `No indexed public profiles found for "${name}" across GitHub, Wikipedia, Wikidata, or Hacker News.`,
+        rawData: { queriedTarget: name, sourcesChecked: ['GitHub', 'Wikipedia', 'Wikidata', 'HackerNews'] },
+        confidence: 'high',
+        severity: 'info',
+        sourceUrl: null,
+        sourceName: 'OpenSpective Passive Recon',
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: 'Tip: Passive OSINT queries open public registries. Try searching by specific username, handle, domain, or email address.',
+      });
+    }
+
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// ---- Username Presence runner ----
+async function runUsernamePresenceCollector(ctx: OrchestratorContext, username: string): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'username_presence');
+  try {
+    const results = await checkUsernamePresence(username);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = nowIso();
+
+    const foundResults = results.filter(r => r.status === 'found');
+    for (const r of foundResults) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'social_profile',
+        subcategory: r.platform.toLowerCase(),
+        type: 'account_presence',
+        value: `${r.platform}: ${username}`,
+        rawData: { ...r },
+        confidence: 'medium',
+        severity: 'info',
+        sourceUrl: r.url,
+        sourceName: `${r.platform} Public Web`,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: `Public profile found at ${r.url}`,
+      });
+
+      await persistRelationship(ctx.env.DB, {
+        investigationId: ctx.investigationId,
+        fromEntityType: 'username',
+        toEntityType: 'url',
+        fromValue: username,
+        toValue: r.url,
+        relationshipType: 'affiliated_with',
+        findingId: null,
+        sourceUrl: r.url,
+        confidence: 'medium',
+        isInferred: false,
+        collectedAt: ts,
+        fromEntityId: '',
+        toEntityId: '',
+      });
+    }
+
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// ---- Email & Identity Intelligence runner ----
+async function runEmailIdentityCollector(ctx: OrchestratorContext, email: string): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'email_identity');
+  try {
+    const result = await collectEmailIdentity(email, ctx.env.GITHUB_TOKEN);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = result.collectedAt;
+
+    for (const f of result.findings) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: f.category,
+        subcategory: f.subcategory ?? null,
+        type: f.type,
+        value: f.value,
+        rawData: f.rawData,
+        confidence: f.confidence,
+        severity: f.severity,
+        sourceUrl: f.sourceUrl ?? null,
+        sourceName: f.sourceName,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: f.notes ?? null,
+      });
+
+      if (f.relationships) {
+        for (const rel of f.relationships) {
+          await persistRelationship(ctx.env.DB, {
+            investigationId: ctx.investigationId,
+            fromEntityType: 'email',
+            toEntityType: rel.toEntityType,
+            fromValue: email,
+            toValue: rel.toValue,
+            relationshipType: rel.relationshipType,
+            findingId: null,
+            sourceUrl: f.sourceUrl ?? null,
+            confidence: f.confidence,
+            isInferred: false,
+            collectedAt: ts,
+            fromEntityId: '',
+            toEntityId: '',
+          });
+        }
+      }
+    }
+
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
 // ============================================================
 // Main orchestration entry point
 // ============================================================
@@ -630,10 +881,21 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
 
       case 'email': {
         const domain = domainFromEmail(normalizedTarget);
-        if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, domain));
-        if (shouldRun('rdap')) runners.push(() => runRdapCollector(ctx, domain, 'domain'));
-        if (shouldRun('certificate_transparency')) runners.push(() => runCertificateCollector(ctx, domain));
-        // HaveIBeenPwned — requires API key — handled separately
+        const isConsumer = [
+          'gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'hotmail.com',
+          'outlook.com', 'live.com', 'msn.com', 'icloud.com', 'proton.me',
+          'protonmail.com', 'zoho.com', 'aol.com', 'mail.com', 'gmx.com'
+        ].includes(domain.toLowerCase());
+
+        // Always run deep email & identity intelligence (git commit history, verified author names, Gravatar, handle footprint)
+        if (shouldRun('email_identity')) runners.push(() => runEmailIdentityCollector(ctx, normalizedTarget));
+
+        // For corporate/custom domains, also run infrastructure DNS/RDAP/CT
+        if (!isConsumer) {
+          if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, domain));
+          if (shouldRun('rdap')) runners.push(() => runRdapCollector(ctx, domain, 'domain'));
+          if (shouldRun('certificate_transparency')) runners.push(() => runCertificateCollector(ctx, domain));
+        }
         break;
       }
 
@@ -659,6 +921,7 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
 
       case 'username': {
         if (shouldRun('github')) runners.push(() => runGitHubCollector(ctx, normalizedTarget, true));
+        if (shouldRun('username_presence')) runners.push(() => runUsernamePresenceCollector(ctx, normalizedTarget));
         break;
       }
 
@@ -671,32 +934,38 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         break;
       }
 
-      case 'person':
-      case 'phone':
-        // Limited passive sources without paid APIs
-        // Record a finding explaining the limitation
-        {
-          const execId = await createCollectorExecution(env.DB, investigationId, 'passive_search');
-          await persistFindings(env.DB, [{
-            investigationId,
-            collectorExecutionId: execId,
-            category: 'system',
-            subcategory: 'limitation',
-            type: 'collector_limitation',
-            value: `Person and phone investigation capabilities are limited without configured paid data providers.`,
-            rawData: { targetType, target: normalizedTarget },
-            confidence: 'high',
-            severity: 'info',
-            sourceUrl: null,
-            sourceName: 'OpenSpective',
-            firstSeen: nowIso(),
-            lastSeen: nowIso(),
-            isInferred: false,
-            notes: 'Consider configuring additional data provider API keys in settings.',
-          }]);
-          await updateCollectorExecution(env.DB, execId, 'completed', 1, null);
+      case 'person': {
+        if (shouldRun('person_search')) runners.push(() => runPersonSearchCollector(ctx, normalizedTarget));
+        const candidateSlug = normalizedTarget.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (candidateSlug && candidateSlug.length >= 3 && candidateSlug.length <= 30 && shouldRun('username_presence')) {
+          runners.push(() => runUsernamePresenceCollector(ctx, candidateSlug));
         }
         break;
+      }
+
+      case 'phone': {
+        // Limited passive sources without paid telephony lookup
+        const execId = await createCollectorExecution(env.DB, investigationId, 'phone_search');
+        await persistFindings(env.DB, [{
+          investigationId,
+          collectorExecutionId: execId,
+          category: 'system',
+          subcategory: 'limitation',
+          type: 'collector_limitation',
+          value: `Carrier and subscriber lookup for phone numbers requires specialized telephony APIs (e.g. Twilio Lookup, Numverify).`,
+          rawData: { targetType, target: normalizedTarget },
+          confidence: 'high',
+          severity: 'info',
+          sourceUrl: null,
+          sourceName: 'OpenSpective',
+          firstSeen: nowIso(),
+          lastSeen: nowIso(),
+          isInferred: false,
+          notes: 'Configure a telephony provider API key in system settings to enable live HLR/carrier queries.',
+        }]);
+        await updateCollectorExecution(env.DB, execId, 'completed', 1, null);
+        break;
+      }
     }
 
     // Run all applicable collectors concurrently (with a limit)

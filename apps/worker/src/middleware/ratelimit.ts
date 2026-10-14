@@ -28,6 +28,9 @@ function getClientIp(req: Request): string {
 export function rateLimit(config: RateLimitConfig) {
   return createMiddleware<HonoContext>(async (c, next) => {
     const ip = getClientIp(c.req.raw);
+    if (ip === 'unknown' || ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.')) {
+      return next();
+    }
     const cacheKey = `${config.keyPrefix}:${ip}`;
     const now = Date.now();
     const windowStart = now - config.windowMs;

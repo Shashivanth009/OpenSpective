@@ -13,10 +13,10 @@ type Variables = { user: AuthUser | null };
 export const reportsRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 reportsRouter.use('*', authMiddleware);
 
-// Generate and store a report
-reportsRouter.post('/investigations/:id/reports', requireAuth, async (c) => {
+// Generate and store a report (Free & open access)
+reportsRouter.post('/investigations/:id/reports', async (c) => {
   const { id } = c.req.param();
-  const user = c.get('user')!;
+  const user = c.get('user');
 
   let body: { format?: string } = {};
   try { body = await c.req.json(); } catch { /* defaults */ }
@@ -32,9 +32,6 @@ reportsRouter.post('/investigations/:id/reports', requireAuth, async (c) => {
     .first();
 
   if (!investigation) return c.json({ error: 'Not found.', code: 'NOT_FOUND' }, 404);
-  if (investigation['user_id'] !== user.id) {
-    return c.json({ error: 'Access denied.', code: 'FORBIDDEN' }, 403);
-  }
 
   const findings = await c.env.DB
     .prepare(`SELECT * FROM findings WHERE investigation_id = ?`)
@@ -171,10 +168,11 @@ ${aiAnalysis ? `<h2>AI Analysis <small>(model: ${aiAnalysis['model']})</small></
   let storageKey: string | null = null;
   if (c.env.REPORTS) {
     try {
-      storageKey = `reports/${user.id}/${id}/${format}-${Date.now()}.${format}`;
+      const ownerId = user?.id ?? 'public';
+      storageKey = `reports/${ownerId}/${id}/${format}-${Date.now()}.${format}`;
       await c.env.REPORTS.put(storageKey, content, {
         httpMetadata: { contentType },
-        customMetadata: { userId: user.id, investigationId: id, format },
+        customMetadata: { userId: ownerId, investigationId: id, format },
       });
     } catch {
       // R2 unavailable — serve directly without storing
@@ -186,7 +184,7 @@ ${aiAnalysis ? `<h2>AI Analysis <small>(model: ${aiAnalysis['model']})</small></
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
   await c.env.DB
     .prepare(`INSERT INTO reports (id, investigation_id, user_id, format, storage_key, created_at, expires_at, size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(reportId, id, user.id, format, storageKey, nowIso(), expiresAt, content.length)
+    .bind(reportId, id, user?.id ?? null, format, storageKey, nowIso(), expiresAt, content.length)
     .run();
 
   // Return the report content directly
@@ -201,9 +199,8 @@ ${aiAnalysis ? `<h2>AI Analysis <small>(model: ${aiAnalysis['model']})</small></
 });
 
 // GET report by ID (R2-backed)
-reportsRouter.get('/reports/:reportId', requireAuth, async (c) => {
+reportsRouter.get('/reports/:reportId', async (c) => {
   const { reportId } = c.req.param();
-  const user = c.get('user')!;
 
   const report = await c.env.DB
     .prepare(`SELECT * FROM reports WHERE id = ?`)
@@ -211,9 +208,6 @@ reportsRouter.get('/reports/:reportId', requireAuth, async (c) => {
     .first();
 
   if (!report) return c.json({ error: 'Report not found.', code: 'NOT_FOUND' }, 404);
-  if (report['user_id'] !== user.id) {
-    return c.json({ error: 'Access denied.', code: 'FORBIDDEN' }, 403);
-  }
 
   if (report['storage_key'] && c.env.REPORTS) {
     const obj = await c.env.REPORTS.get(report['storage_key'] as string);

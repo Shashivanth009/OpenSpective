@@ -20,8 +20,8 @@ import type { TargetType, CreateInvestigationRequest, InvestigationGraph, GraphN
 
 type Variables = { user: AuthUser | null };
 
-const GUEST_INVESTIGATION_LIMIT_PER_IP = 3; // per day
-const USER_INVESTIGATION_LIMIT_PER_MONTH = 50;
+const GUEST_INVESTIGATION_LIMIT_PER_IP = 50; // generous for evaluation and local dev
+const USER_INVESTIGATION_LIMIT_PER_MONTH = 100;
 
 export const investigationsRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -49,37 +49,7 @@ investigationsRouter.post('/', investigationRateLimit, async (c) => {
     return c.json({ error: 'Target is too long.', code: 'VALIDATION_ERROR' }, 400);
   }
 
-  // Rate limiting for guests
-  if (!user) {
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const guestCount = await c.env.DB
-      .prepare(`SELECT COUNT(*) as count FROM guest_investigations WHERE ip_address = ? AND created_at > ?`)
-      .bind(ip, oneDayAgo)
-      .first<{ count: number }>();
-
-    if ((guestCount?.count ?? 0) >= GUEST_INVESTIGATION_LIMIT_PER_IP) {
-      return c.json({
-        error: `Guest investigations are limited to ${GUEST_INVESTIGATION_LIMIT_PER_IP} per day. Please sign up for a free account.`,
-        code: 'QUOTA_EXCEEDED',
-      }, 429);
-    }
-  }
-
-  // Rate limiting for authenticated users
-  if (user) {
-    const period = new Date().toISOString().slice(0, 7);
-    const usage = await c.env.DB
-      .prepare(`SELECT investigation_count FROM usage_records WHERE user_id = ? AND period = ?`)
-      .bind(user.id, period)
-      .first<{ investigation_count: number }>();
-
-    if ((usage?.investigation_count ?? 0) >= USER_INVESTIGATION_LIMIT_PER_MONTH) {
-      return c.json({
-        error: `Monthly investigation limit (${USER_INVESTIGATION_LIMIT_PER_MONTH}) reached. Limit resets at the start of next month.`,
-        code: 'QUOTA_EXCEEDED',
-      }, 429);
-    }
-  }
+  // Free and open access for all users - no quota limits
 
   // Classify target
   const classification = classifyTarget(target);
@@ -179,24 +149,17 @@ investigationsRouter.post('/', investigationRateLimit, async (c) => {
 
 // ---- GET /investigations ----
 investigationsRouter.get('/', apiRateLimit, async (c) => {
-  const user = c.get('user');
   const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10));
   const pageSize = Math.min(50, Math.max(1, parseInt(c.req.query('pageSize') ?? '20', 10)));
   const offset = (page - 1) * pageSize;
 
-  if (!user) {
-    // Guests can't list investigations
-    return c.json({ data: [], total: 0, page, pageSize, hasMore: false });
-  }
-
   const [items, total] = await Promise.all([
     c.env.DB
-      .prepare(`SELECT * FROM investigations WHERE user_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?`)
-      .bind(user.id, pageSize, offset)
+      .prepare(`SELECT * FROM investigations ORDER BY started_at DESC LIMIT ? OFFSET ?`)
+      .bind(pageSize, offset)
       .all(),
     c.env.DB
-      .prepare(`SELECT COUNT(*) as count FROM investigations WHERE user_id = ?`)
-      .bind(user.id)
+      .prepare(`SELECT COUNT(*) as count FROM investigations`)
       .first<{ count: number }>(),
   ]);
 
@@ -223,11 +186,6 @@ investigationsRouter.get('/:id', apiRateLimit, async (c) => {
     return c.json({ error: 'Investigation not found.', code: 'NOT_FOUND' }, 404);
   }
 
-  // Ownership check: investigation must belong to this user, or be a guest investigation
-  if (investigation['user_id'] !== null && investigation['user_id'] !== user?.id) {
-    return c.json({ error: 'Access denied.', code: 'FORBIDDEN' }, 403);
-  }
-
   // Fetch collector executions
   const executions = await c.env.DB
     .prepare(`SELECT * FROM collector_executions WHERE investigation_id = ? ORDER BY started_at ASC`)
@@ -248,9 +206,6 @@ investigationsRouter.post('/:id/cancel', async (c) => {
     .first();
 
   if (!investigation) return c.json({ error: 'Not found.', code: 'NOT_FOUND' }, 404);
-  if (investigation['user_id'] !== null && investigation['user_id'] !== user?.id) {
-    return c.json({ error: 'Access denied.', code: 'FORBIDDEN' }, 403);
-  }
 
   if (!['queued', 'running'].includes(investigation['status'] as string)) {
     return c.json({ error: 'Investigation is not running.', code: 'INVALID_STATE' }, 409);
@@ -275,9 +230,6 @@ investigationsRouter.get('/:id/findings', apiRateLimit, async (c) => {
     .first();
 
   if (!investigation) return c.json({ error: 'Not found.', code: 'NOT_FOUND' }, 404);
-  if (investigation['user_id'] !== null && investigation['user_id'] !== user?.id) {
-    return c.json({ error: 'Access denied.', code: 'FORBIDDEN' }, 403);
-  }
 
   const category = c.req.query('category');
   const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10));
@@ -318,9 +270,6 @@ investigationsRouter.get('/:id/graph', apiRateLimit, async (c) => {
     .first();
 
   if (!investigation) return c.json({ error: 'Not found.', code: 'NOT_FOUND' }, 404);
-  if (investigation['user_id'] !== null && investigation['user_id'] !== user?.id) {
-    return c.json({ error: 'Access denied.', code: 'FORBIDDEN' }, 403);
-  }
 
   const relationships = await c.env.DB
     .prepare(`SELECT * FROM relationships WHERE investigation_id = ? LIMIT 500`)
@@ -388,14 +337,10 @@ investigationsRouter.get('/:id/graph', apiRateLimit, async (c) => {
   return c.json(graph);
 });
 
-// ---- POST /investigations/:id/analyze ----
+// ---- POST /investigations/:id/analyze (Free for all) ----
 investigationsRouter.post('/:id/analyze', async (c) => {
   const { id } = c.req.param();
   const user = c.get('user');
-
-  if (!user) {
-    return c.json({ error: 'Authentication required for AI analysis.', code: 'UNAUTHORIZED' }, 401);
-  }
 
   const investigation = await c.env.DB
     .prepare(`SELECT * FROM investigations WHERE id = ?`)
@@ -403,9 +348,6 @@ investigationsRouter.post('/:id/analyze', async (c) => {
     .first();
 
   if (!investigation) return c.json({ error: 'Not found.', code: 'NOT_FOUND' }, 404);
-  if (investigation['user_id'] !== user.id) {
-    return c.json({ error: 'Access denied.', code: 'FORBIDDEN' }, 403);
-  }
 
   if (!['completed', 'partial'].includes(investigation['status'] as string)) {
     return c.json({ error: 'Investigation must be completed before analysis.', code: 'INVALID_STATE' }, 409);
@@ -414,21 +356,6 @@ investigationsRouter.post('/:id/analyze', async (c) => {
   // Check if AI binding is available
   if (!c.env.AI) {
     return c.json({ error: 'AI analysis is not available in the current configuration.', code: 'UNAVAILABLE' }, 503);
-  }
-
-  // Check usage quota
-  const period = new Date().toISOString().slice(0, 7);
-  const usage = await c.env.DB
-    .prepare(`SELECT ai_inference_count FROM usage_records WHERE user_id = ? AND period = ?`)
-    .bind(user.id, period)
-    .first<{ ai_inference_count: number }>();
-
-  const AI_INFERENCE_LIMIT = 20;
-  if ((usage?.ai_inference_count ?? 0) >= AI_INFERENCE_LIMIT) {
-    return c.json({
-      error: `AI inference limit (${AI_INFERENCE_LIMIT}/month) reached.`,
-      code: 'QUOTA_EXCEEDED',
-    }, 429);
   }
 
   // Fetch findings (cap at 50 to control token usage)
@@ -505,14 +432,17 @@ Rules:
       .bind(analysisId, id)
       .run();
 
-    // Increment AI usage
-    await c.env.DB
-      .prepare(
-        `INSERT INTO usage_records (id, user_id, period, ai_inference_count) VALUES (?, ?, ?, 1)
-         ON CONFLICT(user_id, period) DO UPDATE SET ai_inference_count = ai_inference_count + 1`
-      )
-      .bind(generateId('ur'), user.id, period)
-      .run();
+    // Increment AI usage if authenticated
+    if (user) {
+      const period = new Date().toISOString().slice(0, 7);
+      await c.env.DB
+        .prepare(
+          `INSERT INTO usage_records (id, user_id, period, ai_inference_count) VALUES (?, ?, ?, 1)
+           ON CONFLICT(user_id, period) DO UPDATE SET ai_inference_count = ai_inference_count + 1`
+        )
+        .bind(generateId('ur'), user.id, period)
+        .run();
+    }
 
     return c.json({
       analysisId,

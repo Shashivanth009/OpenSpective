@@ -1,10 +1,9 @@
-import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
+import { Outlet, NavLink, Link } from 'react-router-dom';
 import {
-  Search, LayoutDashboard, History, Settings, LogOut,
+  Search, LayoutDashboard, History, Settings,
   Sun, Moon, Shield, BookOpen
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useAuth } from '../AuthContext.tsx';
 
 // SVG Logo
 function Logo({ size = 28 }: { size?: number }) {
@@ -31,8 +30,6 @@ interface LayoutProps {
 }
 
 export default function Layout({ minimal, showSidebar }: LayoutProps) {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
     (localStorage.getItem('os_theme') as 'light' | 'dark') ?? 'light'
   );
@@ -43,11 +40,6 @@ export default function Layout({ minimal, showSidebar }: LayoutProps) {
   }, [theme]);
 
   const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light');
-
-  const handleLogout = async () => {
-    await logout();
-    navigate('/');
-  };
 
   const sidebarNav = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -87,26 +79,9 @@ export default function Layout({ minimal, showSidebar }: LayoutProps) {
                   {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
                 </button>
 
-                {user ? (
-                  <div className="flex items-center gap-2">
-                    <NavLink to="/investigate" className="btn btn-primary btn-sm">
-                      <Search size={14} /> Investigate
-                    </NavLink>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={handleLogout}
-                      style={{ padding: '8px' }}
-                      aria-label="Log out"
-                    >
-                      <LogOut size={16} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <NavLink to="/login" className="btn btn-secondary btn-sm">Sign In</NavLink>
-                    <NavLink to="/signup" className="btn btn-primary btn-sm">Sign Up Free</NavLink>
-                  </div>
-                )}
+                <NavLink to="/investigate" className="btn btn-primary btn-sm">
+                  <Search size={14} /> New Investigation
+                </NavLink>
               </div>
             </>
           )}
@@ -135,10 +110,13 @@ export default function Layout({ minimal, showSidebar }: LayoutProps) {
             </nav>
 
             <div style={{ borderTop: '1px solid var(--color-border)', marginTop: 'auto', paddingTop: 'var(--space-4)' }}>
-              <div style={{ padding: 'var(--space-3)', background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius)', marginBottom: 'var(--space-4)' }}>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', marginBottom: '4px' }}>Signed in as</div>
-                <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-dark)' }} className="truncate">
-                  {user?.displayName ?? user?.email ?? 'Guest'}
+              <div style={{ padding: 'var(--space-3)', background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius)', marginBottom: 'var(--space-3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--text-xs)', color: 'var(--color-accent)', fontWeight: 600 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-accent)', display: 'inline-block' }} />
+                  Free & Open Edition
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '3px' }}>
+                  No sign-in required
                 </div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -148,13 +126,6 @@ export default function Layout({ minimal, showSidebar }: LayoutProps) {
                 <NavLink to="/privacy" className={({ isActive }) => `flex items-center gap-3 nav-link${isActive ? ' active' : ''}`} style={{ fontSize: 'var(--text-sm)' }}>
                   <Shield size={15} /> Privacy
                 </NavLink>
-                <button
-                  className="flex items-center gap-3 nav-link"
-                  onClick={handleLogout}
-                  style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', color: 'var(--color-error)', borderRadius: 'var(--radius)' }}
-                >
-                  <LogOut size={15} /> Sign Out
-                </button>
               </div>
             </div>
           </aside>

@@ -18,6 +18,9 @@ import { collectTechStack } from './collectors/tech_stack.ts';
 import { collectCryptoWallet, detectCryptoNetwork } from './collectors/crypto.ts';
 import { collectBreachIntelligence } from './collectors/breach.ts';
 import { collectLocationIntelligence } from './collectors/location.ts';
+import { collectShodanInternetDb } from './collectors/shodan.ts';
+import { collectPhoneIntelligence } from './collectors/phone.ts';
+import { collectDnsSecurity } from './collectors/dns_security.ts';
 
 interface OrchestratorContext {
   investigationId: string;
@@ -1432,6 +1435,364 @@ async function runLocationCollector(
   }
 }
 
+// ---- Shodan InternetDB Passive Intelligence runner ----
+async function runShodanCollector(ctx: OrchestratorContext, target: string, isDomain: boolean = false): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'shodan');
+  try {
+    let targetIp = target;
+    if (isDomain) {
+      try {
+        const dnsRes = await collectDns(target);
+        const aRecord = dnsRes.records.find(r => r.type === 'A');
+        if (aRecord) {
+          targetIp = aRecord.value;
+        } else {
+          await updateCollectorExecution(ctx.env.DB, execId, 'completed', 0, 'No A record resolved for domain');
+          return;
+        }
+      } catch {
+        await updateCollectorExecution(ctx.env.DB, execId, 'completed', 0, 'DNS resolution failed before Shodan query');
+        return;
+      }
+    }
+
+    const result = await collectShodanInternetDb(targetIp);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = result.collectedAt;
+
+    if (result.hasData) {
+      // 1. Passive open ports
+      if (result.ports.length > 0) {
+        const highRiskPorts = [21, 23, 445, 1433, 1521, 3306, 3389, 5432, 5900, 6379, 9200, 27017];
+        const hasRisk = result.ports.some(p => highRiskPorts.includes(p));
+        findings.push({
+          investigationId: ctx.investigationId,
+          collectorExecutionId: execId,
+          category: 'infrastructure',
+          subcategory: 'open_ports',
+          type: 'passive_open_ports',
+          value: `Observed Ports: ${result.ports.join(', ')}`,
+          rawData: { ip: targetIp, ports: result.ports },
+          confidence: 'high',
+          severity: hasRisk ? 'medium' : 'info',
+          sourceUrl: `https://internetdb.shodan.io/${targetIp}`,
+          sourceName: result.source,
+          firstSeen: ts,
+          lastSeen: ts,
+          isInferred: false,
+          notes: `Passive reconnaissance discovered ${result.ports.length} open port(s) on ${targetIp}. High-risk services: ${result.ports.filter(p => highRiskPorts.includes(p)).join(', ') || 'None'}.`,
+        });
+      }
+
+      // 2. Known CVEs
+      if (result.cves.length > 0) {
+        findings.push({
+          investigationId: ctx.investigationId,
+          collectorExecutionId: execId,
+          category: 'threat_intelligence',
+          subcategory: 'vulnerabilities',
+          type: 'known_cves_summary',
+          value: `${result.cves.length} Known CVE(s) Indexed: ${result.cves.slice(0, 5).join(', ')}${result.cves.length > 5 ? '...' : ''}`,
+          rawData: { ip: targetIp, cves: result.cves },
+          confidence: 'high',
+          severity: 'high',
+          sourceUrl: `https://internetdb.shodan.io/${targetIp}`,
+          sourceName: result.source,
+          firstSeen: ts,
+          lastSeen: ts,
+          isInferred: false,
+          notes: `Shodan passive vulnerability index matched ${result.cves.length} published CVEs against services operating on this IP.`,
+        });
+
+        for (const cve of result.cves.slice(0, 10)) {
+          findings.push({
+            investigationId: ctx.investigationId,
+            collectorExecutionId: execId,
+            category: 'threat_intelligence',
+            subcategory: 'cve_vulnerability',
+            type: 'known_cve',
+            value: cve,
+            rawData: { ip: targetIp, cve },
+            confidence: 'high',
+            severity: 'high',
+            sourceUrl: `https://nvd.nist.gov/vuln/detail/${cve}`,
+            sourceName: 'NVD / Shodan',
+            firstSeen: ts,
+            lastSeen: ts,
+            isInferred: false,
+            notes: `Passive vulnerability detection for ${targetIp}. Reference: https://nvd.nist.gov/vuln/detail/${cve}`,
+          });
+        }
+      }
+
+      // 3. Reverse Hostnames
+      if (result.hostnames.length > 0) {
+        findings.push({
+          investigationId: ctx.investigationId,
+          collectorExecutionId: execId,
+          category: 'infrastructure',
+          subcategory: 'passive_dns',
+          type: 'reverse_hostnames',
+          value: result.hostnames.join(', '),
+          rawData: { ip: targetIp, hostnames: result.hostnames },
+          confidence: 'high',
+          severity: 'info',
+          sourceUrl: `https://internetdb.shodan.io/${targetIp}`,
+          sourceName: result.source,
+          firstSeen: ts,
+          lastSeen: ts,
+          isInferred: false,
+          notes: `Reverse hostnames observed by Shodan sensors.`,
+        });
+
+        for (const host of result.hostnames.slice(0, 5)) {
+          await persistRelationship(ctx.env.DB, {
+            investigationId: ctx.investigationId,
+            fromEntityType: 'ip',
+            toEntityType: 'domain',
+            fromValue: targetIp,
+            toValue: host,
+            relationshipType: 'resolves_to',
+            findingId: null,
+            sourceUrl: `https://internetdb.shodan.io/${targetIp}`,
+            confidence: 'high',
+            isInferred: false,
+            collectedAt: ts,
+            fromEntityId: '',
+            toEntityId: '',
+          });
+        }
+      }
+
+      // 4. Software CPEs
+      if (result.cpes.length > 0) {
+        findings.push({
+          investigationId: ctx.investigationId,
+          collectorExecutionId: execId,
+          category: 'technology',
+          subcategory: 'cpe_signatures',
+          type: 'software_cpe',
+          value: result.cpes.slice(0, 6).join(', '),
+          rawData: { ip: targetIp, cpes: result.cpes },
+          confidence: 'high',
+          severity: 'info',
+          sourceUrl: `https://internetdb.shodan.io/${targetIp}`,
+          sourceName: result.source,
+          firstSeen: ts,
+          lastSeen: ts,
+          isInferred: false,
+          notes: `Common Platform Enumeration (CPE) signatures passively captured for ${targetIp}.`,
+        });
+
+        for (const cpe of result.cpes.slice(0, 4)) {
+          await persistRelationship(ctx.env.DB, {
+            investigationId: ctx.investigationId,
+            fromEntityType: 'ip',
+            toEntityType: 'technology',
+            fromValue: targetIp,
+            toValue: cpe,
+            relationshipType: 'technology_uses',
+            findingId: null,
+            sourceUrl: `https://internetdb.shodan.io/${targetIp}`,
+            confidence: 'medium',
+            isInferred: false,
+            collectedAt: ts,
+            fromEntityId: '',
+            toEntityId: '',
+          });
+        }
+      }
+    } else {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'infrastructure',
+        subcategory: 'passive_shodan',
+        type: 'shodan_unindexed',
+        value: `No open ports or public CVE vulnerabilities indexed for IP ${targetIp}.`,
+        rawData: { ip: targetIp, checkedAt: ts },
+        confidence: 'high',
+        severity: 'none',
+        sourceUrl: `https://internetdb.shodan.io/${targetIp}`,
+        sourceName: result.source,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: 'Target IP is not currently exposing ports indexed in Shodan InternetDB.',
+      });
+    }
+
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, result.error ?? null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// ---- International Phone Number Intelligence runner ----
+async function runPhoneCollector(ctx: OrchestratorContext, phone: string): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'phone');
+  try {
+    const result = await collectPhoneIntelligence(phone);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = result.collectedAt;
+
+    // 1. Phone attribution profile
+    findings.push({
+      investigationId: ctx.investigationId,
+      collectorExecutionId: execId,
+      category: 'identity',
+      subcategory: 'phone_intelligence',
+      type: 'phone_profile',
+      value: `${result.internationalFormat} — ${result.countryName} (${result.lineType.toUpperCase()})`,
+      rawData: { ...result },
+      confidence: result.validLength ? 'high' : 'medium',
+      severity: 'info',
+      sourceUrl: null,
+      sourceName: result.source,
+      firstSeen: ts,
+      lastSeen: ts,
+      isInferred: false,
+      notes: `ITU-T E.164 Profile: Country: ${result.countryName} (+${result.countryCode}), Region: ${result.region}, Line Type: ${result.lineType}, Length Valid: ${result.validLength ? 'Yes' : 'No'}.`,
+    });
+
+    // 2. Geolocation attribution & map coordinates
+    if (result.coordinates) {
+      const mapUrl = `https://maps.google.com/?q=${result.coordinates.lat},${result.coordinates.lon}`;
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'location_intelligence',
+        subcategory: 'phone_origin',
+        type: 'telecom_country_attribution',
+        value: `${result.countryName} (${result.region})`,
+        rawData: { country: result.countryName, coordinates: result.coordinates },
+        confidence: 'high',
+        severity: 'info',
+        sourceUrl: mapUrl,
+        sourceName: result.source,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: `Phone dial plan allocated to ${result.countryName}. Geographic centroid: ${result.coordinates.lat}, ${result.coordinates.lon}.`,
+      });
+
+      await persistRelationship(ctx.env.DB, {
+        investigationId: ctx.investigationId,
+        fromEntityType: 'phone',
+        toEntityType: 'location',
+        fromValue: result.e164Format || phone,
+        toValue: result.countryName,
+        relationshipType: 'located_in',
+        findingId: null,
+        sourceUrl: mapUrl,
+        confidence: 'high',
+        isInferred: false,
+        collectedAt: ts,
+        fromEntityId: '',
+        toEntityId: '',
+      });
+    }
+
+    // 3. OSINT Pivot Links
+    for (const pivot of result.osintPivots) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'reconnaissance',
+        subcategory: 'osint_pivot',
+        type: 'osint_search_dork',
+        value: `${pivot.name}: ${pivot.description}`,
+        rawData: { ...pivot },
+        confidence: 'high',
+        severity: 'info',
+        sourceUrl: pivot.url,
+        sourceName: 'OpenSpective OSINT Dork Engine',
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: `OSINT Investigation Query: ${pivot.url}`,
+      });
+
+      await persistRelationship(ctx.env.DB, {
+        investigationId: ctx.investigationId,
+        fromEntityType: 'phone',
+        toEntityType: 'url',
+        fromValue: result.e164Format || phone,
+        toValue: pivot.url,
+        relationshipType: 'mentions',
+        findingId: null,
+        sourceUrl: pivot.url,
+        confidence: 'medium',
+        isInferred: false,
+        collectedAt: ts,
+        fromEntityId: '',
+        toEntityId: '',
+      });
+    }
+
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, result.error ?? null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// ---- DNS & Email Security Hygiene runner ----
+async function runDnsSecurityCollector(ctx: OrchestratorContext, domain: string): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'dns_security');
+  try {
+    const result = await collectDnsSecurity(domain);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = result.collectedAt;
+
+    // 1. Overall Hygiene Score & Grade
+    findings.push({
+      investigationId: ctx.investigationId,
+      collectorExecutionId: execId,
+      category: 'security_posture',
+      subcategory: 'email_authentication',
+      type: 'dns_security_score',
+      value: `Grade: ${result.securityGrade} (Score: ${result.securityScore}/100)`,
+      rawData: { ...result },
+      confidence: 'high',
+      severity: result.securityScore < 50 ? 'high' : result.securityScore < 75 ? 'medium' : 'info',
+      sourceUrl: 'https://cloudflare-dns.com/dns-query',
+      sourceName: result.source,
+      firstSeen: ts,
+      lastSeen: ts,
+      isInferred: false,
+      notes: `Defensive posture: SPF: ${result.hasSpf ? 'Configured' : 'Missing'} | DMARC: ${result.hasDmarc ? 'Configured' : 'Missing'} | BIMI: ${result.hasBimi ? 'Configured' : 'Missing'} | MTA-STS: ${result.hasMtaSts ? 'Configured' : 'Missing'} | DNSSEC: ${result.hasDnssec ? 'Configured' : 'Missing'}.`,
+    });
+
+    // 2. Individual Security Checks
+    for (const check of result.checks) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'security_posture',
+        subcategory: 'dns_hygiene_check',
+        type: `check_${check.check.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+        value: `${check.check}: [${check.status.toUpperCase()}] ${check.detail}`,
+        rawData: { ...check },
+        confidence: 'high',
+        severity: check.status === 'fail' ? 'high' : check.status === 'warn' ? 'medium' : 'info',
+        sourceUrl: 'https://cloudflare-dns.com/dns-query',
+        sourceName: result.source,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: check.recommendation ? `Recommendation: ${check.recommendation}` : (check.record ? `Record: ${check.record}` : null),
+      });
+    }
+
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, result.error ?? null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
 // ============================================================
 // Main orchestration entry point
 // ============================================================
@@ -1451,6 +1812,8 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
     switch (targetType) {
       case 'domain': {
         if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, normalizedTarget));
+        if (shouldRun('dns_security')) runners.push(() => runDnsSecurityCollector(ctx, normalizedTarget));
+        if (shouldRun('shodan')) runners.push(() => runShodanCollector(ctx, normalizedTarget, true));
         if (shouldRun('rdap')) runners.push(() => runRdapCollector(ctx, normalizedTarget, 'domain'));
         if (shouldRun('certificate_transparency')) runners.push(() => runCertificateCollector(ctx, normalizedTarget));
         if (shouldRun('virustotal')) runners.push(() => runVtCollector(ctx, normalizedTarget, 'domain'));
@@ -1474,9 +1837,11 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (shouldRun('breach')) runners.push(() => runBreachCollector(ctx, normalizedTarget, 'email'));
         if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, []));
 
-        // For corporate/custom domains, also run infrastructure DNS/RDAP/CT/WebArchive
+        // For corporate/custom domains, also run infrastructure DNS/RDAP/CT/WebArchive/Security Hygiene
         if (!isConsumer) {
           if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, domain));
+          if (shouldRun('dns_security')) runners.push(() => runDnsSecurityCollector(ctx, domain));
+          if (shouldRun('shodan')) runners.push(() => runShodanCollector(ctx, domain, true));
           if (shouldRun('rdap')) runners.push(() => runRdapCollector(ctx, domain, 'domain'));
           if (shouldRun('certificate_transparency')) runners.push(() => runCertificateCollector(ctx, domain));
           if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, domain));
@@ -1488,6 +1853,7 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
       case 'ip': {
         if (shouldRun('rdap')) runners.push(() => runRdapCollector(ctx, normalizedTarget, 'ip'));
         if (shouldRun('ipinfo')) runners.push(() => runIpInfoCollector(ctx, normalizedTarget));
+        if (shouldRun('shodan')) runners.push(() => runShodanCollector(ctx, normalizedTarget, false));
         if (shouldRun('virustotal')) runners.push(() => runVtCollector(ctx, normalizedTarget, 'ip'));
         if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
         break;
@@ -1499,6 +1865,7 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
           const domain = parsedUrl.hostname;
           if (shouldRun('url_metadata')) runners.push(() => runUrlMetadataCollector(ctx, normalizedTarget));
           if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, domain));
+          if (shouldRun('dns_security')) runners.push(() => runDnsSecurityCollector(ctx, domain));
           if (shouldRun('virustotal')) runners.push(() => runVtCollector(ctx, normalizedTarget, 'url'));
           if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, domain));
           if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, normalizedTarget));
@@ -1530,6 +1897,8 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         const slug = normalizedTarget.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
         const candidateDomain = `${slug}.com`;
         if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, candidateDomain));
+        if (shouldRun('dns_security')) runners.push(() => runDnsSecurityCollector(ctx, candidateDomain));
+        if (shouldRun('shodan')) runners.push(() => runShodanCollector(ctx, candidateDomain, true));
         if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, candidateDomain));
         if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, candidateDomain));
         if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
@@ -1547,26 +1916,7 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
       }
 
       case 'phone': {
-        // Limited passive sources without paid telephony lookup
-        const execId = await createCollectorExecution(env.DB, investigationId, 'phone_search');
-        await persistFindings(env.DB, [{
-          investigationId,
-          collectorExecutionId: execId,
-          category: 'system',
-          subcategory: 'limitation',
-          type: 'collector_limitation',
-          value: `Carrier and subscriber lookup for phone numbers requires specialized telephony APIs (e.g. Twilio Lookup, Numverify).`,
-          rawData: { targetType, target: normalizedTarget },
-          confidence: 'high',
-          severity: 'info',
-          sourceUrl: null,
-          sourceName: 'OpenSpective',
-          firstSeen: nowIso(),
-          lastSeen: nowIso(),
-          isInferred: false,
-          notes: 'Configure a telephony provider API key in system settings to enable live HLR/carrier queries.',
-        }]);
-        await updateCollectorExecution(env.DB, execId, 'completed', 1, null);
+        if (shouldRun('phone')) runners.push(() => runPhoneCollector(ctx, normalizedTarget));
         break;
       }
     }

@@ -179,6 +179,33 @@ export const COLLECTORS: CollectorDefinition[] = [
     limitations: ['Passive geocoding via OpenStreetMap Nominatim and timezone inference.'],
     isConfigured: () => true,
   },
+  {
+    name: 'shodan',
+    displayName: 'Shodan InternetDB (Ports & CVEs)',
+    description: 'Passively maps open network ports, detected software CPEs, and known CVE vulnerabilities without active socket probing.',
+    targetTypes: ['ip', 'domain'],
+    requiresCredentials: false,
+    limitations: ['Queries Shodan InternetDB global passive sensors. Historical data may vary.'],
+    isConfigured: () => true,
+  },
+  {
+    name: 'phone',
+    displayName: 'International Phone Intelligence',
+    description: 'Analyzes international ITU-T E.164 dialing plans, telecom region, line type (mobile/fixed/toll-free), and OSINT search pivots.',
+    targetTypes: ['phone'],
+    requiresCredentials: false,
+    limitations: ['E.164 numbering plan allocation analysis. Does not perform live SS7/HLR carrier subscriber tracking.'],
+    isConfigured: () => true,
+  },
+  {
+    name: 'dns_security',
+    displayName: 'DNS & Email Security Hygiene',
+    description: 'Audits SPF, DMARC, BIMI, MTA-STS, TLS-RPT, and DNSSEC defenses and grades domain spoofability.',
+    targetTypes: ['domain', 'email', 'organization'],
+    requiresCredentials: false,
+    limitations: ['Audits public DNS records via Cloudflare DoH.'],
+    isConfigured: () => true,
+  },
 ];
 
 // Get collectors applicable to a target type

@@ -1,483 +1,2742 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Compass, Search, ExternalLink, Copy, Check, Sparkles
+  Compass, Search, ExternalLink, Copy, Check, Sparkles,
+  Terminal, Shield, BookOpen, Layers, CheckCircle2
 } from 'lucide-react';
 
-interface OsintTool {
+export interface OsintTool {
   id: string;
   name: string;
   category: string;
   subcategory: string;
   description: string;
-  urlTemplate: string; // supports {target}, {domain}, {username}, {email}, {ip}
+  urlTemplate: string;
   directUrl: string;
+  cliCommand?: string;
   tags: string[];
   requiresApiKey: boolean;
   freeTier: boolean;
+  bestFor?: string;
 }
 
-const OSINT_FRAMEWORK_DATA: OsintTool[] = [
-  // --- USERNAME & IDENTITY ---
-  {
-    id: 'whatsmyname',
-    name: 'WhatsMyName Web',
-    category: 'Usernames',
-    subcategory: 'Cross-Platform Footprint',
-    description: 'Fast, passive username enumeration tool checking 500+ open-web services.',
-    urlTemplate: 'https://whatsmyname.app/?q={username}',
-    directUrl: 'https://whatsmyname.app/',
-    tags: ['username', 'social', 'profiles'],
-    requiresApiKey: false,
-    freeTier: true,
-  },
-  {
-    id: 'keybase',
-    name: 'Keybase Public Directory',
-    category: 'Usernames',
-    subcategory: 'Cryptographic Identity',
-    description: 'Cryptographically proven identity directory linking GitHub, Twitter, Reddit, and PGP keys.',
-    urlTemplate: 'https://keybase.io/{username}',
-    directUrl: 'https://keybase.io/',
-    tags: ['identity', 'crypto', 'pgp'],
-    requiresApiKey: false,
-    freeTier: true,
-  },
-  {
-    id: 'namechk',
-    name: 'Namechk Handle Availability',
-    category: 'Usernames',
-    subcategory: 'Brand & Handle Monitoring',
-    description: 'Check brand and handle registration across dozens of social networks and domains.',
-    urlTemplate: 'https://namechk.com/',
-    directUrl: 'https://namechk.com/',
-    tags: ['brand', 'social', 'domains'],
-    requiresApiKey: false,
-    freeTier: true,
-  },
-  {
-    id: 'gravatar',
-    name: 'Gravatar Profile & Hash Resolver',
-    category: 'Usernames',
-    subcategory: 'Avatar & Bio Intelligence',
-    description: 'Globally recognized avatar service linking email MD5 hashes to public names and accounts.',
-    urlTemplate: 'https://en.gravatar.com/{username}',
-    directUrl: 'https://gravatar.com/',
-    tags: ['email', 'avatar', 'identity'],
-    requiresApiKey: false,
-    freeTier: true,
-  },
+export const OSINT_CATEGORIES = [
+  'All Tools',
+  '1. Search Engines & Advanced Search',
+  '2. Domain, DNS & Subdomains',
+  '3. IP, ASN & Network Intelligence',
+  '4. Email & Username Intelligence',
+  '5. People Search & Digital Footprint',
+  '6. Social Media Intelligence (SOCMINT)',
+  '7. Website Technology Fingerprinting',
+  '8. Web Crawling & Exposed Files',
+  '9. GitHub & Code Intelligence',
+  '10. Image, Video & Reverse-Image',
+  '11. Geolocation & Satellite (GEOINT)',
+  '12. Dark Web & Threat Intelligence',
+  '13. Breach Intel & Leaked Credentials',
+  '14. Cloud & Attack Surface Intelligence',
+  '15. Document Metadata & Digital Forensics',
+  '16. Public Records & Financial Intelligence',
+  '17. Automated OSINT Frameworks',
+  '18. Curated Toolkits & Starter Guide',
+] as const;
 
-  // --- EMAIL INTELLIGENCE ---
+export const OSINT_TOOLS_REGISTRY: OsintTool[] = [
+  // ==========================================
+  // 1. Search engines and advanced search
+  // ==========================================
   {
-    id: 'epieos',
-    name: 'Epieos Google & Account Finder',
-    category: 'Email',
-    subcategory: 'Linked Account Discovery',
-    description: 'Finds Google accounts, Google Maps reviews, calendars, and services linked to an email without alerting the target.',
-    urlTemplate: 'https://epieos.com/?q={email}',
-    directUrl: 'https://epieos.com/',
-    tags: ['email', 'google', 'passive'],
+    id: 'google-dorks',
+    name: 'Google Advanced Search & Dorks',
+    category: '1. Search Engines & Advanced Search',
+    subcategory: 'General Search Engines',
+    description: 'Advanced search operators (site:, filetype:, inurl:, intitle:) to discover exposed configs, passwords, and sensitive directories.',
+    urlTemplate: 'https://www.google.com/search?q=site%3A{domain}+OR+"{target}"',
+    directUrl: 'https://www.google.com/advanced_search',
+    cliCommand: 'curl -s "https://www.google.com/search?q={target}"',
+    tags: ['google', 'dorks', 'search', 'general'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Targeted keyword and exposed file discovery',
   },
   {
-    id: 'ubuntu-pgp',
-    name: 'Ubuntu Keyserver (SKS / OpenPGP)',
-    category: 'Email',
-    subcategory: 'Cryptographic Key Registry',
-    description: 'Global public PGP key index containing public keys, linked email addresses, and key creation history.',
-    urlTemplate: 'https://keyserver.ubuntu.com/pks/lookup?search={email}&op=index',
-    directUrl: 'https://keyserver.ubuntu.com/',
-    tags: ['pgp', 'crypto', 'email'],
+    id: 'bing',
+    name: 'Bing Web & Image Discovery',
+    category: '1. Search Engines & Advanced Search',
+    subcategory: 'General Search Engines',
+    description: 'Alternative web index and image discovery engine with distinct crawling patterns and IP search operators (ip:).',
+    urlTemplate: 'https://www.bing.com/search?q={target}',
+    directUrl: 'https://www.bing.com/',
+    tags: ['bing', 'search', 'images'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Alternative search indexing and IP address lookups',
   },
   {
-    id: 'hunter-io',
-    name: 'Hunter.io Email Permutations',
-    category: 'Email',
-    subcategory: 'Corporate Pattern Discovery',
-    description: 'Discovers corporate email format patterns (e.g. {first}.{last}@domain) and verified public addresses.',
-    urlTemplate: 'https://hunter.io/try/search/{domain}',
+    id: 'duckduckgo',
+    name: 'DuckDuckGo Privacy Search',
+    category: '1. Search Engines & Advanced Search',
+    subcategory: 'General Search Engines',
+    description: 'Privacy-focused search engine that avoids personalized search bubbles and tracking, yielding unfiltered results.',
+    urlTemplate: 'https://duckduckgo.com/?q={target}',
+    directUrl: 'https://duckduckgo.com/',
+    tags: ['duckduckgo', 'privacy', 'unfiltered'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Unfiltered unbiased search results',
+  },
+  {
+    id: 'brave-search',
+    name: 'Brave Search',
+    category: '1. Search Engines & Advanced Search',
+    subcategory: 'General Search Engines',
+    description: 'Independent search engine built from its own web index rather than relying on Google or Bing syndication.',
+    urlTemplate: 'https://search.brave.com/search?q={target}',
+    directUrl: 'https://search.brave.com/',
+    tags: ['brave', 'independent', 'index'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Discovering sites deprioritized by mainstream engines',
+  },
+  {
+    id: 'yandex',
+    name: 'Yandex Image & Reverse-Image Search',
+    category: '1. Search Engines & Advanced Search',
+    subcategory: 'General Search Engines',
+    description: 'Top-tier image and reverse-image recognition engine, particularly renowned for facial similarity and Eastern European indexing.',
+    urlTemplate: 'https://yandex.com/search/?text={target}',
+    directUrl: 'https://yandex.com/images/',
+    tags: ['yandex', 'reverse-image', 'facial-recognition'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Facial recognition and reverse visual matching',
+  },
+  {
+    id: 'shodan',
+    name: 'Shodan',
+    category: '1. Search Engines & Advanced Search',
+    subcategory: 'Specialized Search Engines',
+    description: 'The world\'s first search engine for internet-connected devices, industrial control systems, webcams, and open ports.',
+    urlTemplate: 'https://www.shodan.io/search?query={target}',
+    directUrl: 'https://www.shodan.io/',
+    cliCommand: 'shodan host {ip}',
+    tags: ['shodan', 'iot', 'ports', 'banners'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Locating exposed ports, banners, and vulnerabilities on servers',
+  },
+  {
+    id: 'censys',
+    name: 'Censys Search',
+    category: '1. Search Engines & Advanced Search',
+    subcategory: 'Specialized Search Engines',
+    description: 'Global internet scanner indexing hosts, TLS/SSL certificates, and enterprise attack surfaces with continuous scanning.',
+    urlTemplate: 'https://search.censys.io/hosts?q={target}',
+    directUrl: 'https://search.censys.io/',
+    cliCommand: 'censys search "{target}"',
+    tags: ['censys', 'certificates', 'hosts', 'tls'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Certificate tracking and unmasking origin server IPs behind CDNs',
+  },
+  {
+    id: 'fofa',
+    name: 'FOFA Cyberspace Search',
+    category: '1. Search Engines & Advanced Search',
+    subcategory: 'Specialized Search Engines',
+    description: 'Cyberspace asset retrieval engine indexing global web assets, server banners, protocols, and hardware components.',
+    urlTemplate: 'https://en.fofa.info/result?qbase64=',
+    directUrl: 'https://en.fofa.info/',
+    tags: ['fofa', 'cyberspace', 'assets', 'banners'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Banner and web component search across Asia and global cloud',
+  },
+  {
+    id: 'zoomeye',
+    name: 'ZoomEye',
+    category: '1. Search Engines & Advanced Search',
+    subcategory: 'Specialized Search Engines',
+    description: 'Cyberspace search engine developed by Knownsec, mapping internet devices and websites with fingerprinting.',
+    urlTemplate: 'https://www.zoomeye.org/searchResult?q={target}',
+    directUrl: 'https://www.zoomeye.org/',
+    cliCommand: 'zoomeye search "{target}"',
+    tags: ['zoomeye', 'devices', 'fingerprinting'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Device and web application fingerprint reconnaissance',
+  },
+  {
+    id: 'publicwww',
+    name: 'PublicWWW Source-Code Search',
+    category: '1. Search Engines & Advanced Search',
+    subcategory: 'Specialized Search Engines',
+    description: 'Source code search engine indexing HTML, CSS, JavaScript, and CMS signatures across over 500 million web pages.',
+    urlTemplate: 'https://publicwww.com/websites/{target}/',
+    directUrl: 'https://publicwww.com/',
+    tags: ['publicwww', 'source-code', 'javascript', 'analytics-id'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Pivoting on Google Analytics IDs, ad tags, and custom code snippets',
+  },
+  {
+    id: 'hunter',
+    name: 'Hunter.io',
+    category: '1. Search Engines & Advanced Search',
+    subcategory: 'Specialized Search Engines',
+    description: 'Professional email discovery engine indexing domain patterns, email addresses, and corporate organizational trees.',
+    urlTemplate: 'https://hunter.io/search/{domain}',
     directUrl: 'https://hunter.io/',
-    tags: ['corporate', 'domain', 'email'],
+    tags: ['hunter', 'email', 'domains', 'corporate'],
     requiresApiKey: false,
     freeTier: true,
-  },
-  {
-    id: 'emailrep',
-    name: 'EmailRep.io Reputation & Footprint',
-    category: 'Email',
-    subcategory: 'Fraud & Deliverability',
-    description: 'Reputation engine analyzing deliverability, social presence, spam history, and disposable providers.',
-    urlTemplate: 'https://emailrep.io/{email}',
-    directUrl: 'https://emailrep.io/',
-    tags: ['reputation', 'deliverability', 'email'],
-    requiresApiKey: false,
-    freeTier: true,
+    bestFor: 'Discovering corporate email address formats and contact rosters',
   },
 
-  // --- DOMAIN & SUBDOMAINS ---
+  // ==========================================
+  // 2. Domain, DNS and subdomain reconnaissance
+  // ==========================================
+  {
+    id: 'owasp-amass',
+    name: 'OWASP Amass',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'Subdomain Enumeration',
+    description: 'In-depth attack surface mapping and network asset discovery using open source information gathering and active graph databases.',
+    urlTemplate: 'https://github.com/owasp-amass/amass',
+    directUrl: 'https://github.com/owasp-amass/amass',
+    cliCommand: 'amass enum -d {domain} -passive',
+    tags: ['amass', 'subdomains', 'asn', 'graph'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Comprehensive external attack surface discovery',
+  },
+  {
+    id: 'subfinder',
+    name: 'Subfinder (ProjectDiscovery)',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'Subdomain Enumeration',
+    description: 'Fast passive subdomain enumeration tool that discovers valid subdomains for websites by using passive online sources.',
+    urlTemplate: 'https://github.com/projectdiscovery/subfinder',
+    directUrl: 'https://github.com/projectdiscovery/subfinder',
+    cliCommand: 'subfinder -d {domain} -all -silent',
+    tags: ['subfinder', 'passive', 'subdomains', 'fast'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'High-speed passive subdomain discovery across 30+ sources',
+  },
+  {
+    id: 'theharvester',
+    name: 'theHarvester',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'Subdomain Enumeration',
+    description: 'Gathers emails, names, subdomains, IPs, and URLs using multiple public data sources including search engines and PGP key servers.',
+    urlTemplate: 'https://github.com/laramies/theHarvester',
+    directUrl: 'https://github.com/laramies/theHarvester',
+    cliCommand: 'theHarvester -d {domain} -b all -l 500',
+    tags: ['theharvester', 'recon', 'emails', 'subdomains'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Simultaneous collection of employee names, emails, and subdomains',
+  },
+  {
+    id: 'findomain',
+    name: 'Findomain',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'Subdomain Enumeration',
+    description: 'Cross-platform subdomain finder written in Rust with high speed, certificate transparency querying, and webhook support.',
+    urlTemplate: 'https://github.com/Findomain/Findomain',
+    directUrl: 'https://github.com/Findomain/Findomain',
+    cliCommand: 'findomain -t {domain} -u output.txt',
+    tags: ['findomain', 'rust', 'subdomains', 'monitoring'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Rapid subdomain enumeration and new asset monitoring',
+  },
+  {
+    id: 'assetfinder',
+    name: 'assetfinder',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'Subdomain Enumeration',
+    description: 'Lightweight Go tool that finds domains and subdomains related to a given domain from passive sources.',
+    urlTemplate: 'https://github.com/tomnomnom/assetfinder',
+    directUrl: 'https://github.com/tomnomnom/assetfinder',
+    cliCommand: 'assetfinder --subs-only {domain}',
+    tags: ['assetfinder', 'go', 'subdomains', 'cli'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Unix piping into httpx and other reconnaissance tools',
+  },
   {
     id: 'crt-sh',
-    name: 'crt.sh Certificate Transparency',
-    category: 'Domains',
-    subcategory: 'Subdomain Discovery',
-    description: 'Search Certificate Transparency logs to discover all active and historical subdomains for any root domain.',
+    name: 'crt.sh (Certificate Transparency)',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'Subdomain Enumeration',
+    description: 'Public web search interface for Certificate Transparency logs, revealing all TLS certificates ever issued for a domain.',
     urlTemplate: 'https://crt.sh/?q=%25.{domain}',
     directUrl: 'https://crt.sh/',
-    tags: ['tls', 'certificates', 'subdomains'],
+    cliCommand: 'curl -s "https://crt.sh/?q=%25.{domain}&output=json" | jq -r \'.[].name_value\'',
+    tags: ['crtsh', 'certificates', 'transparency', 'subdomains'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: '100% accurate passive discovery of historically issued certificates',
   },
   {
-    id: 'alienvault-otx',
-    name: 'AlienVault OTX Passive DNS',
-    category: 'Domains',
-    subcategory: 'Threat Exchange & Historical DNS',
-    description: 'Open Threat Exchange containing passive DNS resolutions, historical IP mapping, and threat pulses.',
-    urlTemplate: 'https://otx.alienvault.com/indicator/domain/{domain}',
-    directUrl: 'https://otx.alienvault.com/',
-    tags: ['passive-dns', 'threats', 'ioc'],
+    id: 'chaos',
+    name: 'Chaos (ProjectDiscovery)',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'Subdomain Enumeration',
+    description: 'Continually updated internet-wide DNS dataset of subdomains with automated monitoring and API access.',
+    urlTemplate: 'https://chaos.projectdiscovery.io/#/',
+    directUrl: 'https://chaos.projectdiscovery.io/',
+    cliCommand: 'chaos -d {domain} -silent',
+    tags: ['chaos', 'dns', 'bugbounty', 'projectdiscovery'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Instant pre-indexed subdomain datasets for major organizations',
   },
   {
     id: 'securitytrails',
-    name: 'SecurityTrails DNS History',
-    category: 'Domains',
-    subcategory: 'Historical A / MX / NS Records',
-    description: 'Explore historical DNS changes to discover origin server IPs prior to CDN/Cloudflare onboarding.',
+    name: 'SecurityTrails',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'Subdomain Enumeration',
+    description: 'The World\'s Largest Repository of Historical DNS data, WHOIS records, and current domain intelligence.',
     urlTemplate: 'https://securitytrails.com/domain/{domain}/dns',
     directUrl: 'https://securitytrails.com/',
-    tags: ['history', 'dns', 'origin-ip'],
+    tags: ['securitytrails', 'dns', 'historical', 'whois'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Investigating historical A/MX/NS changes and IP ownership shifts',
   },
   {
-    id: 'hackertarget-dns',
-    name: 'HackerTarget Host Search',
-    category: 'Domains',
-    subcategory: 'Fast Subdomain Enumeration',
-    description: 'Passive querying of forward DNS dataset to map subdomains and hosted IP addresses.',
-    urlTemplate: 'https://hackertarget.com/find-dns-host-records/?the_target={domain}',
+    id: 'dnsdumpster',
+    name: 'DNSDumpster',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'Subdomain Enumeration',
+    description: 'Free domain research tool that maps DNS records, subdomains, MX servers, and visual network topology.',
+    urlTemplate: 'https://dnsdumpster.com/',
+    directUrl: 'https://dnsdumpster.com/',
+    tags: ['dnsdumpster', 'topology', 'dns', 'mapping'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Visual domain topology and DNS infrastructure mapping',
+  },
+  {
+    id: 'dig',
+    name: 'dig (Domain Information Groper)',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'DNS & Live-Host Discovery',
+    description: 'Standard network administration command-line tool for querying Domain Name System (DNS) servers directly.',
+    urlTemplate: 'https://www.digwebinterface.com/?hostnames={domain}&trace=on',
+    directUrl: 'https://www.digwebinterface.com/',
+    cliCommand: 'dig +nocmd {domain} any +multiline +noall +answer',
+    tags: ['dig', 'dns', 'cli', 'network'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Raw low-level DNS record queries (A, AAAA, MX, TXT, SOA, CNAME)',
+  },
+  {
+    id: 'dnsx',
+    name: 'dnsx (ProjectDiscovery)',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'DNS & Live-Host Discovery',
+    description: 'Fast and multi-purpose DNS toolkit allow running multiple DNS queries of your choice with user-defined resolvers.',
+    urlTemplate: 'https://github.com/projectdiscovery/dnsx',
+    directUrl: 'https://github.com/projectdiscovery/dnsx',
+    cliCommand: 'dnsx -d {domain} -resp -a -cname -silent',
+    tags: ['dnsx', 'resolver', 'wildcard', 'dns'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'High-speed mass DNS resolution with automated wildcard filtering',
+  },
+  {
+    id: 'massdns',
+    name: 'MassDNS',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'DNS & Live-Host Discovery',
+    description: 'High-performance DNS stub resolver capable of resolving millions of domain names per minute.',
+    urlTemplate: 'https://github.com/blechschmidt/massdns',
+    directUrl: 'https://github.com/blechschmidt/massdns',
+    cliCommand: 'massdns -r resolvers.txt -t A subdomains.txt -o S',
+    tags: ['massdns', 'high-speed', 'resolver', 'c'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Brute-forcing subdomains at gigabit resolution speeds',
+  },
+  {
+    id: 'httpx',
+    name: 'httpx (ProjectDiscovery)',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'DNS & Live-Host Discovery',
+    description: 'Fast and multi-purpose HTTP toolkit that allows running multiple probes with retry capabilities and technology detection.',
+    urlTemplate: 'https://github.com/projectdiscovery/httpx',
+    directUrl: 'https://github.com/projectdiscovery/httpx',
+    cliCommand: 'httpx -u {target} -status-code -title -tech-detect -follow-redirects',
+    tags: ['httpx', 'probing', 'http', 'status'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Probing live web services, response codes, and titles across subdomains',
+  },
+  {
+    id: 'aquatone',
+    name: 'Aquatone',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'DNS & Live-Host Discovery',
+    description: 'Visual inspection tool for reconnaissance on domain names by executing HTTP requests and taking screenshots of web services.',
+    urlTemplate: 'https://github.com/michenriksen/aquatone',
+    directUrl: 'https://github.com/michenriksen/aquatone',
+    cliCommand: 'cat targets.txt | aquatone -out ./aquatone_report',
+    tags: ['aquatone', 'visual', 'screenshots', 'reporting'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Quick visual triage of large numbers of discovered web services',
+  },
+  {
+    id: 'hackertarget',
+    name: 'HackerTarget Online Recon Tools',
+    category: '2. Domain, DNS & Subdomains',
+    subcategory: 'DNS & Live-Host Discovery',
+    description: 'Online toolkit providing accessible IP lookups, reverse DNS, traceroutes, ASNs, and port scan utilities.',
+    urlTemplate: 'https://hackertarget.com/dns-lookup/?q={domain}',
     directUrl: 'https://hackertarget.com/',
-    tags: ['subdomains', 'dns', 'lookup'],
+    tags: ['hackertarget', 'dns', 'traceroute', 'network'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Fast online IP and DNS reconnaissance without installing tools',
   },
 
-  // --- IP & NETWORK INFRASTRUCTURE ---
+  // ==========================================
+  // 3. IP addresses, ASN and network intelligence
+  // ==========================================
   {
-    id: 'shodan-host',
-    name: 'Shodan Global Device Search',
-    category: 'IP & Infrastructure',
-    subcategory: 'Network Banners & Ports',
-    description: 'The world\'s search engine for Internet-connected devices, industrial controllers, and open ports.',
-    urlTemplate: 'https://www.shodan.io/host/{ip}',
-    directUrl: 'https://www.shodan.io/',
-    tags: ['ports', 'banners', 'iot'],
+    id: 'ipinfo',
+    name: 'IPinfo',
+    category: '3. IP, ASN & Network Intelligence',
+    subcategory: 'IP Geolocation & ASN',
+    description: 'Accurate IP address data, geolocation coordinates, Autonomous System Number (ASN), carrier details, and VPN/proxy detection.',
+    urlTemplate: 'https://ipinfo.io/{ip}',
+    directUrl: 'https://ipinfo.io/',
+    cliCommand: 'curl -s "https://ipinfo.io/{ip}/json"',
+    tags: ['ipinfo', 'geolocation', 'asn', 'carrier'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Accurate geolocation, ASN ownership, and proxy/hosting detection',
   },
   {
-    id: 'censys-search',
-    name: 'Censys Search Engine',
-    category: 'IP & Infrastructure',
-    subcategory: 'TLS & Host Fingerprinting',
-    description: 'Continuous Internet scanning engine providing deep TLS handshakes, virtual hosts, and software signatures.',
-    urlTemplate: 'https://search.censys.io/hosts/{ip}',
-    directUrl: 'https://search.censys.io/',
-    tags: ['tls', 'fingerprinting', 'ip'],
+    id: 'greynoise',
+    name: 'GreyNoise Visualizer',
+    category: '3. IP, ASN & Network Intelligence',
+    subcategory: 'Threat Context & Noise',
+    description: 'Contextualizes internet background noise and mass-scanning activity to distinguish malicious attacks from benign scanners.',
+    urlTemplate: 'https://viz.greynoise.io/ip/{ip}',
+    directUrl: 'https://viz.greynoise.io/',
+    cliCommand: 'greynoise ip {ip}',
+    tags: ['greynoise', 'scanners', 'threat-intel', 'noise'],
     requiresApiKey: false,
     freeTier: true,
-  },
-  {
-    id: 'bgpview',
-    name: 'BGPView ASN & Prefix Routing',
-    category: 'IP & Infrastructure',
-    subcategory: 'BGP Routing & Peering',
-    description: 'Analyze Autonomous System Numbers (ASN), BGP prefixes, upstream transits, and IX peers.',
-    urlTemplate: 'https://bgpview.io/ip/{ip}',
-    directUrl: 'https://bgpview.io/',
-    tags: ['bgp', 'asn', 'routing'],
-    requiresApiKey: false,
-    freeTier: true,
-  },
-  {
-    id: 'abuseipdb',
-    name: 'AbuseIPDB Threat Reports',
-    category: 'IP & Infrastructure',
-    subcategory: 'Abuse & Attack History',
-    description: 'Crowdsourced database of reported malicious IPs engaging in SSH brute force, port scans, and web attacks.',
-    urlTemplate: 'https://www.abuseipdb.com/check/{ip}',
-    directUrl: 'https://www.abuseipdb.com/',
-    tags: ['abuse', 'attacks', 'reputation'],
-    requiresApiKey: false,
-    freeTier: true,
-  },
-
-  // --- THREAT INTELLIGENCE & IOCS ---
-  {
-    id: 'urlhaus',
-    name: 'Abuse.ch URLhaus Malware Database',
-    category: 'Threat Intelligence',
-    subcategory: 'Malware Distribution URLs',
-    description: 'Community-driven project sharing malicious URLs that are being used for malware distribution.',
-    urlTemplate: 'https://urlhaus.abuse.ch/browse.php?search={domain}',
-    directUrl: 'https://urlhaus.abuse.ch/',
-    tags: ['malware', 'payloads', 'c2'],
-    requiresApiKey: false,
-    freeTier: true,
-  },
-  {
-    id: 'threatfox',
-    name: 'ThreatFox Indicators of Compromise',
-    category: 'Threat Intelligence',
-    subcategory: 'C2 & IOC Tracking',
-    description: 'Free platform to share and query indicators of compromise associated with cyber threats.',
-    urlTemplate: 'https://threatfox.abuse.ch/browse.php?search={domain}',
-    directUrl: 'https://threatfox.abuse.ch/',
-    tags: ['ioc', 'c2', 'threats'],
-    requiresApiKey: false,
-    freeTier: true,
+    bestFor: 'Verifying if an IP is a benign research scanner (Shodan/Censys) or malicious worm',
   },
   {
     id: 'virustotal',
-    name: 'VirusTotal Multi-Engine Scanner',
-    category: 'Threat Intelligence',
-    subcategory: 'Antivirus & URL Heuristics',
-    description: 'Aggregate reports from 70+ antivirus scanners and URL/domain blacklists.',
-    urlTemplate: 'https://www.virustotal.com/gui/domain/{domain}',
+    name: 'VirusTotal',
+    category: '3. IP, ASN & Network Intelligence',
+    subcategory: 'Reputation & Threat Intel',
+    description: 'Inspects suspicious files, domains, IPs and URLs across 70+ antivirus scanners and URL blocklists.',
+    urlTemplate: 'https://www.virustotal.com/gui/search/{target}',
     directUrl: 'https://www.virustotal.com/',
-    tags: ['antivirus', 'scanners', 'ioc'],
+    cliCommand: 'vt ip {ip}',
+    tags: ['virustotal', 'malware', 'reputation', 'threats'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Comprehensive threat classification and historical passive DNS relations',
+  },
+  {
+    id: 'abuseipdb',
+    name: 'AbuseIPDB',
+    category: '3. IP, ASN & Network Intelligence',
+    subcategory: 'Reputation & Threat Intel',
+    description: 'Community-driven database of IP addresses that have been reported for engaging in malicious activities online.',
+    urlTemplate: 'https://www.abuseipdb.com/check/{ip}',
+    directUrl: 'https://www.abuseipdb.com/',
+    tags: ['abuseipdb', 'reputation', 'bruteforce', 'attacks'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Checking reported brute-forcing, SSH attacks, and web abuse scores',
+  },
+  {
+    id: 'ripestat',
+    name: 'RIPEstat',
+    category: '3. IP, ASN & Network Intelligence',
+    subcategory: 'BGP & Routing',
+    description: 'Large-scale information service providing internet number resources (IPv4, IPv6, ASNs) and BGP routing status.',
+    urlTemplate: 'https://stat.ripe.net/{target}',
+    directUrl: 'https://stat.ripe.net/',
+    tags: ['ripestat', 'bgp', 'routing', 'rir'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Official European RIR registry data, route history, and allocation',
+  },
+  {
+    id: 'bgp-he-net',
+    name: 'BGP.he.net (Hurricane Electric)',
+    category: '3. IP, ASN & Network Intelligence',
+    subcategory: 'BGP & Routing',
+    description: 'Hurricane Electric BGP toolkit for analyzing autonomous systems, peering relationships, prefixes, and IXPs.',
+    urlTemplate: 'https://bgp.he.net/ip/{ip}',
+    directUrl: 'https://bgp.he.net/',
+    tags: ['he', 'bgp', 'asn', 'peering'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Autonomous system hierarchy, upstream providers, and IP prefixes',
+  },
+  {
+    id: 'viewdns',
+    name: 'ViewDNS.info',
+    category: '3. IP, ASN & Network Intelligence',
+    subcategory: 'Network Utilities',
+    description: 'Suite of DNS and network lookup tools including Reverse IP, Reverse WHOIS, DNS record lookups, and traceroutes.',
+    urlTemplate: 'https://viewdns.info/reverseip/?host={target}&t=1',
+    directUrl: 'https://viewdns.info/',
+    tags: ['viewdns', 'reverse-ip', 'dns', 'whois'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Reverse IP lookup: finding other domains hosted on the same server IP',
+  },
+  {
+    id: 'ip2location',
+    name: 'IP2Location',
+    category: '3. IP, ASN & Network Intelligence',
+    subcategory: 'IP Geolocation & ASN',
+    description: 'IP geolocation lookup tool identifying country, region, city, coordinates, ZIP code, time zone, and connection speed.',
+    urlTemplate: 'https://www.ip2location.com/demo/{ip}',
+    directUrl: 'https://www.ip2location.com/',
+    tags: ['ip2location', 'geo', 'coordinates', 'timezone'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Verifying IP geographic coordinates and residential proxy detection',
+  },
+  {
+    id: 'arin-rdap',
+    name: 'ARIN RDAP Directory',
+    category: '3. IP, ASN & Network Intelligence',
+    subcategory: 'RIR Registries',
+    description: 'American Registry for Internet Numbers Registration Data Access Protocol (RDAP) for North American IP allocation.',
+    urlTemplate: 'https://rdap.arin.net/registry/ip/{ip}',
+    directUrl: 'https://www.arin.net/resources/registry/whois/rdap/',
+    cliCommand: 'curl -s "https://rdap.arin.net/registry/ip/{ip}"',
+    tags: ['arin', 'rdap', 'whois', 'allocation'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Official IP block ownership and organizational point-of-contact info',
+  },
+  {
+    id: 'ip-api',
+    name: 'ip-api',
+    category: '3. IP, ASN & Network Intelligence',
+    subcategory: 'IP Geolocation & ASN',
+    description: 'Fast, free, and reliable IP geolocation API endpoint returning JSON formatted location and carrier metadata.',
+    urlTemplate: 'https://ip-api.com/#{ip}',
+    directUrl: 'https://ip-api.com/',
+    cliCommand: 'curl -s "http://ip-api.com/json/{ip}"',
+    tags: ['ip-api', 'json', 'coordinates', 'api'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Instant lightweight IP geolocation metadata via CLI or browser',
   },
 
-  // --- DOCUMENTS, CODE & LEAKS ---
+  // ==========================================
+  // 4. Email and username intelligence
+  // ==========================================
   {
-    id: 'github-code-search',
-    name: 'GitHub Code Secrets Search',
-    category: 'Documents & Leaks',
-    subcategory: 'Public Code Leakage',
-    description: 'Search billions of lines of public code for leaked credentials, private keys, and configuration tokens.',
-    urlTemplate: 'https://github.com/search?q=%22{domain}%22+password+OR+secret+OR+token&type=code',
-    directUrl: 'https://github.com/search',
-    tags: ['github', 'code', 'secrets'],
+    id: 'sherlock',
+    name: 'Sherlock',
+    category: '4. Email & Username Intelligence',
+    subcategory: 'Username Enumeration',
+    description: 'Hunt down social media accounts by username across 350+ social platforms and online services.',
+    urlTemplate: 'https://github.com/sherlock-project/sherlock',
+    directUrl: 'https://github.com/sherlock-project/sherlock',
+    cliCommand: 'sherlock {username} --timeout 5',
+    tags: ['sherlock', 'username', 'social', 'python'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Finding user account handles across the entire social web',
+  },
+  {
+    id: 'maigret',
+    name: 'Maigret',
+    category: '4. Email & Username Intelligence',
+    subcategory: 'Username Enumeration',
+    description: 'Collects a dossier on a person by username only, checking 2,500+ sites and extracting names, avatars, and linked accounts.',
+    urlTemplate: 'https://github.com/soxoj/maigret',
+    directUrl: 'https://github.com/soxoj/maigret',
+    cliCommand: 'maigret {username} -a --pdf',
+    tags: ['maigret', 'dossier', 'username', 'deep-recon'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Deep dossier compilation with automated cross-site attribute extraction',
+  },
+  {
+    id: 'holehe',
+    name: 'Holehe',
+    category: '4. Email & Username Intelligence',
+    subcategory: 'Email Intelligence',
+    description: 'Checks if an email is attached to an account on 120+ sites (Twitter, Instagram, GitHub, Discord) using password reset endpoints.',
+    urlTemplate: 'https://github.com/megadose/holehe',
+    directUrl: 'https://github.com/megadose/holehe',
+    cliCommand: 'holehe {email}',
+    tags: ['holehe', 'email', 'forgot-password', 'accounts'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Passively identifying which web services a target email has registered accounts on',
+  },
+  {
+    id: 'ghunt',
+    name: 'GHunt',
+    category: '4. Email & Username Intelligence',
+    subcategory: 'Email Intelligence',
+    description: 'Investigative OSINT tool to extract Google Account data (Google ID, Maps reviews, Google Photos, Hangouts status) from an email.',
+    urlTemplate: 'https://github.com/mxrch/GHunt',
+    directUrl: 'https://github.com/mxrch/GHunt',
+    cliCommand: 'ghunt email {email}',
+    tags: ['ghunt', 'google', 'maps', 'photos'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Extracting Google Account IDs, Reviews, and geographic history from an email',
+  },
+  {
+    id: 'blackbird',
+    name: 'Blackbird',
+    category: '4. Email & Username Intelligence',
+    subcategory: 'Username Enumeration',
+    description: 'Fast OSINT tool written in Python that searches for accounts across 570+ websites with asynchronous requests.',
+    urlTemplate: 'https://github.com/p1ngul1n0/blackbird',
+    directUrl: 'https://github.com/p1ngul1n0/blackbird',
+    cliCommand: 'blackbird -u {username}',
+    tags: ['blackbird', 'async', 'username', 'fast'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'High-speed asynchronous multi-platform username searches',
+  },
+  {
+    id: 'whatsmyname',
+    name: 'WhatsMyName Web',
+    category: '4. Email & Username Intelligence',
+    subcategory: 'Username Enumeration',
+    description: 'Curated and continuously validated JSON ruleset checking username existence across 500+ web platforms.',
+    urlTemplate: 'https://whatsmyname.app/?q={username}',
+    directUrl: 'https://whatsmyname.app/',
+    tags: ['whatsmyname', 'web', 'profiles', 'json'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Instant browser-based username search without installing CLI tools',
+  },
+  {
+    id: 'hunter-io',
+    name: 'Hunter.io Verifier',
+    category: '4. Email & Username Intelligence',
+    subcategory: 'Email Intelligence',
+    description: 'Checks the deliverability of an email address by querying MX servers, SMTP handshakes, and catch-all flags.',
+    urlTemplate: 'https://hunter.io/verify/{email}',
+    directUrl: 'https://hunter.io/verify',
+    tags: ['hunter', 'deliverability', 'smtp', 'verifier'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Verifying if a corporate or personal email address is currently active',
+  },
+  {
+    id: 'emailrep',
+    name: 'Emailrep.io',
+    category: '4. Email & Username Intelligence',
+    subcategory: 'Email Intelligence',
+    description: 'Email address reputation engine checking account age, domain reputation, deliverability, data breaches, and risk profiles.',
+    urlTemplate: 'https://emailrep.io/{email}',
+    directUrl: 'https://emailrep.io/',
+    cliCommand: 'curl -s "https://emailrep.io/{email}"',
+    tags: ['emailrep', 'reputation', 'risk', 'fraud'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Assessing if an email is disposable, newly created, or linked to malicious activity',
+  },
+  {
+    id: 'epieos',
+    name: 'Epieos',
+    category: '4. Email & Username Intelligence',
+    subcategory: 'Email Intelligence',
+    description: 'Reverse lookup engine retrieving Google account details, reviews, calendar presence, and Skype identifiers from an email.',
+    urlTemplate: 'https://epieos.com/?q={email}',
+    directUrl: 'https://epieos.com/',
+    tags: ['epieos', 'reverse-email', 'google', 'skype'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Quick web-based reverse email lookups and Google identity extraction',
+  },
+  {
+    id: 'hibp',
+    name: 'Have I Been Pwned',
+    category: '4. Email & Username Intelligence',
+    subcategory: 'Breach Intelligence',
+    description: 'The definitive public repository of commercial and corporate data breaches curated by Troy Hunt.',
+    urlTemplate: 'https://haveibeenpwned.com/unifiedsearch/{target}',
+    directUrl: 'https://haveibeenpwned.com/',
+    tags: ['hibp', 'breach', 'passwords', 'pwned'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Verifying whether an email or phone number has surfaced in known breaches',
+  },
+  {
+    id: 'phoneinfoga',
+    name: 'PhoneInfoga',
+    category: '4. Email & Username Intelligence',
+    subcategory: 'Phone Number Intelligence',
+    description: 'Advanced information gathering & OSINT framework for international phone numbers using free resources.',
+    urlTemplate: 'https://github.com/sundowndev/phoneinfoga',
+    directUrl: 'https://github.com/sundowndev/phoneinfoga',
+    cliCommand: 'phoneinfoga scan -n {target}',
+    tags: ['phoneinfoga', 'phone', 'telephony', 'e164'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Carrier lookup, line type (VOIP vs Mobile), and international formatting',
+  },
+  {
+    id: 'numverify',
+    name: 'Numverify',
+    category: '4. Email & Username Intelligence',
+    subcategory: 'Phone Number Intelligence',
+    description: 'Global phone number validation and carrier lookup API covering 232 countries with real-time validation.',
+    urlTemplate: 'https://numverify.com/',
+    directUrl: 'https://numverify.com/',
+    tags: ['numverify', 'validation', 'carrier', 'telecom'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Validating international phone number formatting and mobile operator allocation',
+  },
+
+  // ==========================================
+  // 5. People search and digital footprint
+  // ==========================================
+  {
+    id: 'maltego',
+    name: 'Maltego',
+    category: '5. People Search & Digital Footprint',
+    subcategory: 'Link Analysis & Graphs',
+    description: 'Interactive data mining tool that renders directed graphs for link analysis, uncovering connections between people, domains, and networks.',
+    urlTemplate: 'https://www.maltego.com/',
+    directUrl: 'https://www.maltego.com/',
+    tags: ['maltego', 'graphs', 'link-analysis', 'transforms'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Complex multi-hop entity graph analysis and relationship visualization',
+  },
+  {
+    id: 'spiderfoot',
+    name: 'SpiderFoot',
+    category: '5. People Search & Digital Footprint',
+    subcategory: 'Automated Reconnaissance',
+    description: 'Open source intelligence automation tool with 200+ modules integrating with major threat intelligence and OSINT data sources.',
+    urlTemplate: 'https://github.com/smicallef/spiderfoot',
+    directUrl: 'https://www.spiderfoot.net/',
+    cliCommand: 'sf.py -s {target} -m all -o csv',
+    tags: ['spiderfoot', 'automation', 'modules', 'recon'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Broad automated intelligence gathering across targets with zero manual queries',
+  },
+  {
+    id: 'recon-ng',
+    name: 'Recon-ng',
+    category: '5. People Search & Digital Footprint',
+    subcategory: 'Automated Reconnaissance',
+    description: 'Full-featured modular Web Reconnaissance framework with independent modules, database interaction, and command completion.',
+    urlTemplate: 'https://github.com/lanmaster53/recon-ng',
+    directUrl: 'https://github.com/lanmaster53/recon-ng',
+    cliCommand: 'recon-ng -w default',
+    tags: ['recon-ng', 'modular', 'framework', 'database'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Repeatable, structured command-line reconnaissance and database storage',
+  },
+  {
+    id: 'osintframework-web',
+    name: 'OSINT Framework Web Directory',
+    category: '5. People Search & Digital Footprint',
+    subcategory: 'Curated Resource Directories',
+    description: 'The classic interactive tree diagram detailing thousands of open-source intelligence tools organized by target type.',
+    urlTemplate: 'https://osintframework.com/',
+    directUrl: 'https://osintframework.com/',
+    tags: ['directory', 'tree', 'curated', 'methodology'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Discovering niche investigative techniques for unusual target data types',
+  },
+  {
+    id: 'inteltechniques',
+    name: 'IntelTechniques (Michael Bazzell)',
+    category: '5. People Search & Digital Footprint',
+    subcategory: 'Investigative Toolkits',
+    description: 'Industry-standard investigative search tools and privacy frameworks created by former FBI cyber investigator Michael Bazzell.',
+    urlTemplate: 'https://inteltechniques.com/tools/',
+    directUrl: 'https://inteltechniques.com/',
+    tags: ['inteltechniques', 'bazzell', 'investigations', 'privacy'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Pre-configured search forms for social networks, public records, and people lookups',
+  },
+  {
+    id: 'pipl',
+    name: 'Pipl Identity Search',
+    category: '5. People Search & Digital Footprint',
+    subcategory: 'People Search Engines',
+    description: 'Global identity search engine indexing deep-web profiles, public records, phone books, and employment histories.',
+    urlTemplate: 'https://pipl.com/search/?q={target}',
+    directUrl: 'https://pipl.com/',
+    tags: ['pipl', 'identity', 'deep-web', 'corporate'],
+    requiresApiKey: true,
+    freeTier: false,
+    bestFor: 'Cross-referencing verified real-world phone, address, and employment records',
+  },
+  {
+    id: 'google-alerts',
+    name: 'Google Alerts',
+    category: '5. People Search & Digital Footprint',
+    subcategory: 'Continuous Monitoring',
+    description: 'Monitors the web for newly indexed mentions of targeted individuals, company names, or sensitive keywords with automated email alerts.',
+    urlTemplate: 'https://www.google.com/alerts#q={target}',
+    directUrl: 'https://www.google.com/alerts',
+    tags: ['google', 'alerts', 'monitoring', 'intel'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Passive continuous monitoring of new digital footprint developments',
   },
   {
     id: 'wayback-machine',
-    name: 'Wayback Machine Archive',
-    category: 'Documents & Leaks',
-    subcategory: 'Historical Snapshots',
-    description: 'Internet Archive of 800+ billion web pages, historical versions, and removed files.',
-    urlTemplate: 'https://web.archive.org/web/*/{domain}',
-    directUrl: 'https://archive.org/',
-    tags: ['archive', 'history', 'snapshots'],
+    name: 'Internet Archive: Wayback Machine',
+    category: '5. People Search & Digital Footprint',
+    subcategory: 'Historical Archives',
+    description: 'Digital library indexing over 800 billion web pages captured over time, revealing removed pages, past employees, and older contact info.',
+    urlTemplate: 'https://web.archive.org/web/*/{domain}*',
+    directUrl: 'https://web.archive.org/',
+    cliCommand: 'curl -s "https://web.archive.org/cdx/search/cdx?url={domain}/*&output=json&fl=original"',
+    tags: ['wayback', 'archive', 'history', 'snapshots'],
     requiresApiKey: false,
     freeTier: true,
-  },
-  {
-    id: 'pastebin-search',
-    name: 'Public Paste & Dumps Search',
-    category: 'Documents & Leaks',
-    subcategory: 'Pastebin & Leak Search',
-    description: 'Search public paste sites (Pastebin, Ghostbin, Rentry) for published data dumps and logs.',
-    urlTemplate: 'https://www.google.com/search?q=site:pastebin.com+OR+site:rentry.co+%22{target}%22',
-    directUrl: 'https://pastebin.com/',
-    tags: ['pastebin', 'dumps', 'leaks'],
-    requiresApiKey: false,
-    freeTier: true,
+    bestFor: 'Reviewing historical snapshots of deleted sites and legacy contact pages',
   },
 
-  // --- CORPORATE & LEGAL REGISTRIES ---
+  // ==========================================
+  // 6. Social media intelligence (SOCMINT)
+  // ==========================================
   {
-    id: 'opencorporates',
-    name: 'OpenCorporates Global Registry',
-    category: 'Corporate & Legal',
-    subcategory: 'Global Company Filings',
-    description: 'The largest open database of company filings, officers, corporate entities, and jurisdictions.',
-    urlTemplate: 'https://opencorporates.com/companies?q={target}',
-    directUrl: 'https://opencorporates.com/',
-    tags: ['company', 'officers', 'legal'],
+    id: 'social-searcher',
+    name: 'Social Searcher',
+    category: '6. Social Media Intelligence (SOCMINT)',
+    subcategory: 'Cross-Platform Mentions',
+    description: 'Real-time social media search engine monitoring public mentions across Twitter, Reddit, YouTube, Instagram, and web forums.',
+    urlTemplate: 'https://www.social-searcher.com/search-users/?q6={target}',
+    directUrl: 'https://www.social-searcher.com/',
+    tags: ['social-searcher', 'mentions', 'sentiment', 'social'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Monitoring real-time public sentiment and cross-platform keyword chatter',
   },
   {
-    id: 'sec-edgar',
-    name: 'SEC EDGAR Public Filings',
-    category: 'Corporate & Legal',
-    subcategory: 'US Securities & Financial Filings',
-    description: 'Official US Securities and Exchange Commission filings (10-K, 10-Q, 8-K) for publicly traded corporations.',
-    urlTemplate: 'https://www.sec.gov/edgar/searchedgar/companysearch?companyName={target}',
-    directUrl: 'https://www.sec.gov/edgar/searchedgar/companysearch',
-    tags: ['sec', 'financial', 'filings'],
+    id: 'reddit-search',
+    name: 'Reddit Public Search',
+    category: '6. Social Media Intelligence (SOCMINT)',
+    subcategory: 'Discussion Forums',
+    description: 'Searches public Reddit discussions, subreddits, author profiles, and comment histories using structured query parameters.',
+    urlTemplate: 'https://www.reddit.com/search/?q={target}',
+    directUrl: 'https://www.reddit.com/',
+    tags: ['reddit', 'discussions', 'comments', 'forums'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Uncovering grassroots technical troubleshooting and candid employee discussions',
   },
   {
-    id: 'companies-house',
-    name: 'UK Companies House Register',
-    category: 'Corporate & Legal',
-    subcategory: 'UK Enterprise & Directors',
-    description: 'Official register of UK businesses, directors, accounts, and registered office addresses.',
-    urlTemplate: 'https://find-and-update.company-information.service.gov.uk/search?q={target}',
-    directUrl: 'https://find-and-update.company-information.service.gov.uk/',
-    tags: ['uk', 'directors', 'companies'],
+    id: 'tgstat',
+    name: 'TGStat Telegram Analytics',
+    category: '6. Social Media Intelligence (SOCMINT)',
+    subcategory: 'Messaging & Channels',
+    description: 'Comprehensive catalog and analytics search engine indexing public Telegram channels, chat groups, and broadcast posts.',
+    urlTemplate: 'https://tgstat.com/search?q={target}',
+    directUrl: 'https://tgstat.com/',
+    tags: ['tgstat', 'telegram', 'channels', 'analytics'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Searching public Telegram channel messages, forward chains, and subscriber stats',
+  },
+  {
+    id: 'telemetr',
+    name: 'Telemetr.io',
+    category: '6. Social Media Intelligence (SOCMINT)',
+    subcategory: 'Messaging & Channels',
+    description: 'Telegram analytics service providing deep metrics on public channel growth, view rates, post mentions, and author networks.',
+    urlTemplate: 'https://telemetr.io/en/channels?search={target}',
+    directUrl: 'https://telemetr.io/',
+    tags: ['telemetrio', 'telegram', 'audience', 'analytics'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Analyzing Telegram audience dynamics and tracking promotional forward networks',
+  },
+  {
+    id: 'twint',
+    name: 'Twint (Archive / OSINT)',
+    category: '6. Social Media Intelligence (SOCMINT)',
+    subcategory: 'Platform Scraping',
+    description: 'Advanced Twitter scraping tool written in Python that doesn\'t use Twitter\'s API, allowing you to scrape a user\'s tweets, followers, and likes.',
+    urlTemplate: 'https://github.com/twintproject/twint',
+    directUrl: 'https://github.com/twintproject/twint',
+    cliCommand: 'twint -u {username} --json -o tweets.json',
+    tags: ['twint', 'twitter', 'scraping', 'history'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Offline archival of historical Twitter activity and geo-tagged tweet searches',
+  },
+  {
+    id: 'snscrape',
+    name: 'snscrape',
+    category: '6. Social Media Intelligence (SOCMINT)',
+    subcategory: 'Platform Scraping',
+    description: 'Fast Python social networking scraper for services such as Twitter, Facebook, Instagram, Mastodon, Reddit, Telegram, and VKontakte.',
+    urlTemplate: 'https://github.com/JustAnotherArchivist/snscrape',
+    directUrl: 'https://github.com/JustAnotherArchivist/snscrape',
+    cliCommand: 'snscrape --jsonl twitter-user {username} > user_tweets.json',
+    tags: ['snscrape', 'social', 'multi-platform', 'scraper'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Scraping public profiles without API token restrictions',
+  },
+  {
+    id: 'yt-dlp',
+    name: 'yt-dlp Video & Media Metadata',
+    category: '6. Social Media Intelligence (SOCMINT)',
+    subcategory: 'Media Forensics',
+    description: 'Command-line tool to extract rich metadata, thumbnails, upload timestamps, channel descriptions, and subtitles from video platforms.',
+    urlTemplate: 'https://github.com/yt-dlp/yt-dlp',
+    directUrl: 'https://github.com/yt-dlp/yt-dlp',
+    cliCommand: 'yt-dlp --dump-json {target} | jq .',
+    tags: ['ytdlp', 'video', 'metadata', 'forensics'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Extracting exact upload timestamps, GPS coords (when available), and descriptions',
   },
 
-  // --- GEOLOCATION & SATELLITE ---
+  // ==========================================
+  // 7. Website technology fingerprinting
+  // ==========================================
+  {
+    id: 'wappalyzer',
+    name: 'Wappalyzer',
+    category: '7. Website Technology Fingerprinting',
+    subcategory: 'Technology Profilers',
+    description: 'Technology profiler that uncovers technologies used on websites: CMSs, web frameworks, e-commerce platforms, analytics, and server software.',
+    urlTemplate: 'https://www.wappalyzer.com/lookup/{domain}/',
+    directUrl: 'https://www.wappalyzer.com/',
+    cliCommand: 'wappalyzer {target}',
+    tags: ['wappalyzer', 'fingerprinting', 'cms', 'frameworks'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Instant browser extension and CLI detection of software stacks',
+  },
+  {
+    id: 'builtwith',
+    name: 'BuiltWith Technology Profiler',
+    category: '7. Website Technology Fingerprinting',
+    subcategory: 'Technology Profilers',
+    description: 'Web technology information profiler detailing hosting providers, advertising tags, SSL certificates, widgets, and historical frameworks.',
+    urlTemplate: 'https://builtwith.com/{domain}',
+    directUrl: 'https://builtwith.com/',
+    tags: ['builtwith', 'frameworks', 'hosting', 'history'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Detailed historical records of tech adoption and tracking tags',
+  },
+  {
+    id: 'whatweb',
+    name: 'WhatWeb',
+    category: '7. Website Technology Fingerprinting',
+    subcategory: 'Fingerprinting Scanners',
+    description: 'Next-generation web scanner identifying content management systems (CMS), blogging platforms, JavaScript libraries, and server versions.',
+    urlTemplate: 'https://github.com/urbanadventurer/WhatWeb',
+    directUrl: 'https://github.com/urbanadventurer/WhatWeb',
+    cliCommand: 'whatweb -a 3 {target} --color=never',
+    tags: ['whatweb', 'scanner', 'ruby', 'fingerprint'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Command-line scanning of headers, cookies, and meta-tag signatures',
+  },
+  {
+    id: 'webanalyze',
+    name: 'webanalyze',
+    category: '7. Website Technology Fingerprinting',
+    subcategory: 'Fingerprinting Scanners',
+    description: 'Port of Wappalyzer in Go with high throughput for mass analysis of websites against Wappalyzer\'s regex dataset.',
+    urlTemplate: 'https://github.com/rverton/webanalyze',
+    directUrl: 'https://github.com/rverton/webanalyze',
+    cliCommand: 'webanalyze -host {domain} -crawl 1',
+    tags: ['webanalyze', 'go', 'wappalyzer', 'mass-scan'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'High-speed mass technology scanning inside automated reconnaissance pipelines',
+  },
+  {
+    id: 'netcraft',
+    name: 'Netcraft Site Report',
+    category: '7. Website Technology Fingerprinting',
+    subcategory: 'Infrastructure Intelligence',
+    description: 'Provides in-depth site reports detailing domain registrar, hosting provider, netblock owner, operating system, and historical uptime.',
+    urlTemplate: 'https://sitereport.netcraft.com/?url={domain}',
+    directUrl: 'https://sitereport.netcraft.com/',
+    tags: ['netcraft', 'hosting', 'history', 'infrastructure'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Long-term hosting history and web server OS identification',
+  },
+  {
+    id: 'retire-js',
+    name: 'Retire.js',
+    category: '7. Website Technology Fingerprinting',
+    subcategory: 'Vulnerability Detection',
+    description: 'Scanner detecting the use of JavaScript libraries with known vulnerabilities (CVEs) across web applications and endpoints.',
+    urlTemplate: 'https://github.com/RetireJS/retire.js',
+    directUrl: 'https://retirejs.github.io/retire.js/',
+    cliCommand: 'retire --js --url {target}',
+    tags: ['retirejs', 'cve', 'javascript', 'vulnerabilities'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Finding outdated jQuery, React, or Lodash bundles with known security flaws',
+  },
+  {
+    id: 'securityheaders',
+    name: 'SecurityHeaders.com',
+    category: '7. Website Technology Fingerprinting',
+    subcategory: 'Security Configuration',
+    description: 'Evaluates HTTP response security headers (Content-Security-Policy, HSTS, X-Frame-Options) and assigns a defensive hygiene grade.',
+    urlTemplate: 'https://securityheaders.com/?q={domain}&followRedirects=on',
+    directUrl: 'https://securityheaders.com/',
+    tags: ['securityheaders', 'csp', 'hsts', 'defense'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Instant letter-grade evaluation of HTTP defensive posture',
+  },
+  {
+    id: 'mozilla-observatory',
+    name: 'Observatory by Mozilla',
+    category: '7. Website Technology Fingerprinting',
+    subcategory: 'Security Configuration',
+    description: 'Mozilla\'s suite of scanning tools checking TLS/SSL configurations, SSH configurations, and HTTP security headers.',
+    urlTemplate: 'https://observatory.mozilla.org/analyze/{domain}',
+    directUrl: 'https://observatory.mozilla.org/',
+    tags: ['mozilla', 'observatory', 'tls', 'headers'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Rigorous compliance auditing for web encryption and CSP rulesets',
+  },
+  {
+    id: 'urlscan-io',
+    name: 'urlscan.io',
+    category: '7. Website Technology Fingerprinting',
+    subcategory: 'Sandbox & Behavior',
+    description: 'Free service to scan and analyze websites, recording HTTP transactions, DOM elements, cookies, and full-page screenshots.',
+    urlTemplate: 'https://urlscan.io/search/#{domain}',
+    directUrl: 'https://urlscan.io/',
+    cliCommand: 'curl -s "https://urlscan.io/api/v1/search/?q=domain:{domain}"',
+    tags: ['urlscan', 'sandbox', 'dom', 'network'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Safely inspecting suspect domains, redirects, and network asset payloads',
+  },
+  {
+    id: 'builtwith-trends',
+    name: 'BuiltWith Trends',
+    category: '7. Website Technology Fingerprinting',
+    subcategory: 'Technology Profilers',
+    description: 'Tracks market-wide adoption trends, migrations, and tech stack evolution across the top 1 million websites.',
+    urlTemplate: 'https://trends.builtwith.com/',
+    directUrl: 'https://trends.builtwith.com/',
+    tags: ['trends', 'analytics', 'market-share', 'adoption'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Understanding macroeconomic tech adoption and competitor stack choices',
+  },
+
+  // ==========================================
+  // 8. Web crawling, content discovery and exposed files
+  // ==========================================
+  {
+    id: 'katana',
+    name: 'Katana (ProjectDiscovery)',
+    category: '8. Web Crawling & Exposed Files',
+    subcategory: 'Web Crawlers',
+    description: 'Next-generation web crawling and spidering framework designed with headless browser capabilities and automated pipeline integration.',
+    urlTemplate: 'https://github.com/projectdiscovery/katana',
+    directUrl: 'https://github.com/projectdiscovery/katana',
+    cliCommand: 'katana -u {target} -d 3 -jc -silent',
+    tags: ['katana', 'crawler', 'spider', 'headless'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Crawling dynamic single-page applications with JavaScript execution',
+  },
+  {
+    id: 'gau',
+    name: 'gau (GetAllUrls)',
+    category: '8. Web Crawling & Exposed Files',
+    subcategory: 'URL Aggregators',
+    description: 'Fetches known URLs from AlienVault\'s Open Threat Exchange, the Wayback Machine, and Common Crawl for any given domain.',
+    urlTemplate: 'https://github.com/lc/gau',
+    directUrl: 'https://github.com/lc/gau',
+    cliCommand: 'gau {domain} --subs --o urls.txt',
+    tags: ['gau', 'wayback', 'otx', 'endpoints'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Massive passive discovery of historical and forgotten URL parameters',
+  },
+  {
+    id: 'waybackurls',
+    name: 'waybackurls',
+    category: '8. Web Crawling & Exposed Files',
+    subcategory: 'URL Aggregators',
+    description: 'Accepts domain names on stdin and fetches all URLs that the Wayback Machine has indexed for them.',
+    urlTemplate: 'https://github.com/tomnomnom/waybackurls',
+    directUrl: 'https://github.com/tomnomnom/waybackurls',
+    cliCommand: 'echo {domain} | waybackurls > wayback_urls.txt',
+    tags: ['waybackurls', 'archive', 'go', 'endpoints'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Extracting historical endpoints and legacy API routes without hitting the live server',
+  },
+  {
+    id: 'hakrawler',
+    name: 'hakrawler',
+    category: '8. Web Crawling & Exposed Files',
+    subcategory: 'Web Crawlers',
+    description: 'Fast Go web crawler designed for easy, quick discovery of endpoints and assets within a web application.',
+    urlTemplate: 'https://github.com/hakluke/hakrawler',
+    directUrl: 'https://github.com/hakluke/hakrawler',
+    cliCommand: 'echo {target} | hakrawler -depth 2 -scope strict',
+    tags: ['hakrawler', 'go', 'fast', 'spider'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Rapid in-scope endpoint mapping in bug bounty workflows',
+  },
+  {
+    id: 'linkfinder',
+    name: 'LinkFinder',
+    category: '8. Web Crawling & Exposed Files',
+    subcategory: 'JavaScript Analysis',
+    description: 'Python script written to discover endpoints and their parameters in JavaScript files on web applications.',
+    urlTemplate: 'https://github.com/GerbenJavado/LinkFinder',
+    directUrl: 'https://github.com/GerbenJavado/LinkFinder',
+    cliCommand: 'python linkfinder.py -i {target} -o cli',
+    tags: ['linkfinder', 'javascript', 'regex', 'endpoints'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Extracting hidden API routes and endpoints from bundled JS code',
+  },
+  {
+    id: 'secretfinder',
+    name: 'SecretFinder',
+    category: '8. Web Crawling & Exposed Files',
+    subcategory: 'JavaScript Analysis',
+    description: 'Python script based on LinkFinder, specifically engineered to discover sensitive data like API keys, tokens, and authorization headers in JS files.',
+    urlTemplate: 'https://github.com/m4ll0k/SecretFinder',
+    directUrl: 'https://github.com/m4ll0k/SecretFinder',
+    cliCommand: 'python SecretFinder.py -i {target} -o cli',
+    tags: ['secretfinder', 'secrets', 'api-keys', 'tokens'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Finding hardcoded third-party API keys (Stripe, AWS, Firebase) in production web apps',
+  },
+  {
+    id: 'google-dorks-files',
+    name: 'Google Dorks for Sensitive Files',
+    category: '8. Web Crawling & Exposed Files',
+    subcategory: 'Exposed Files',
+    description: 'Specific dorks targeting publicly accessible .env, .git, .sql, .bak, and configuration dump files on target domains.',
+    urlTemplate: 'https://www.google.com/search?q=site%3A{domain}+ext%3Aenv+OR+ext%3Ayml+OR+ext%3Asql+OR+ext%3Alog',
+    directUrl: 'https://www.exploit-db.com/google-hacking-database',
+    tags: ['dorks', 'files', 'sql', 'env'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Finding database dumps and environment variables exposed on webroots',
+  },
+  {
+    id: 'github-code-search',
+    name: 'GitHub Code Search',
+    category: '8. Web Crawling & Exposed Files',
+    subcategory: 'Code & Repositories',
+    description: 'GitHub\'s regex-capable code search engine to discover credentials, authorization tokens, and internal domains.',
+    urlTemplate: 'https://github.com/search?q="{domain}"+password+OR+token&type=code',
+    directUrl: 'https://github.com/search',
+    cliCommand: 'gh search code "{domain} password"',
+    tags: ['github', 'code', 'secrets', 'leaks'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Discovering employee-committed internal passwords and API credentials',
+  },
+  {
+    id: 'trufflehog',
+    name: 'TruffleHog',
+    category: '8. Web Crawling & Exposed Files',
+    subcategory: 'Secret Scanners',
+    description: 'Finds credentials, private keys, and tokens deep inside git commit histories, S3 buckets, and filesystem directories with verification.',
+    urlTemplate: 'https://github.com/trufflesecurity/trufflehog',
+    directUrl: 'https://trufflesecurity.com/',
+    cliCommand: 'trufflehog git {target} --only-verified',
+    tags: ['trufflehog', 'secrets', 'git', 'verification'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Scanning git histories with automated verification to eliminate false positive tokens',
+  },
+  {
+    id: 'gitleaks',
+    name: 'Gitleaks',
+    category: '8. Web Crawling & Exposed Files',
+    subcategory: 'Secret Scanners',
+    description: 'Fast, lightweight secret scanner written in Go that audits git repositories and directories for passwords, API keys, and certificates.',
+    urlTemplate: 'https://github.com/gitleaks/gitleaks',
+    directUrl: 'https://gitleaks.io/',
+    cliCommand: 'gitleaks detect --source . -v',
+    tags: ['gitleaks', 'go', 'secrets', 'ci-cd'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Automated repository pre-commit hooks and local code audits',
+  },
+  {
+    id: 'grayhatwarfare',
+    name: 'GrayhatWarfare',
+    category: '8. Web Crawling & Exposed Files',
+    subcategory: 'Exposed Files',
+    description: 'Public cloud bucket search engine indexing over 4 billion publicly accessible files across AWS S3, Google Cloud, and Azure Blobs.',
+    urlTemplate: 'https://grayhatwarfare.com/files?keywords={domain}',
+    directUrl: 'https://grayhatwarfare.com/',
+    tags: ['grayhatwarfare', 's3', 'buckets', 'cloud-storage'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Searching through indexed files in inadvertently public cloud buckets',
+  },
+
+  // ==========================================
+  // 9. GitHub and code intelligence
+  // ==========================================
+  {
+    id: 'github-search-general',
+    name: 'GitHub Search & Code Intelligence',
+    category: '9. GitHub & Code Intelligence',
+    subcategory: 'Code Platforms',
+    description: 'Explore public repositories, commits, pull requests, issues, and users across millions of open-source projects.',
+    urlTemplate: 'https://github.com/search?q={target}',
+    directUrl: 'https://github.com/',
+    cliCommand: 'gh search repos "{target}"',
+    tags: ['github', 'repos', 'commits', 'developers'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Developer identity attribution and commit footprint correlation',
+  },
+  {
+    id: 'github-cli',
+    name: 'GitHub CLI (gh)',
+    category: '9. GitHub & Code Intelligence',
+    subcategory: 'Code Platforms',
+    description: 'Official GitHub command-line interface bringing pull requests, issues, repositories, and API queries to your terminal.',
+    urlTemplate: 'https://cli.github.com/',
+    directUrl: 'https://cli.github.com/',
+    cliCommand: 'gh api users/{username}/events',
+    tags: ['gh', 'cli', 'api', 'automation'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Scripting direct API queries against user activity and public repos',
+  },
+  {
+    id: 'gitrob',
+    name: 'Gitrob',
+    category: '9. GitHub & Code Intelligence',
+    subcategory: 'Repository Reconnaissance',
+    description: 'Command-line tool to help find potentially sensitive files pushed to public repositories on GitHub belonging to an organization.',
+    urlTemplate: 'https://github.com/michenriksen/gitrob',
+    directUrl: 'https://github.com/michenriksen/gitrob',
+    cliCommand: 'gitrob {target}',
+    tags: ['gitrob', 'organization', 'recon', 'sensitive-files'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Scanning an entire organization\'s member repositories for accidental leaks',
+  },
+  {
+    id: 'githound',
+    name: 'GitHound',
+    category: '9. GitHub & Code Intelligence',
+    subcategory: 'Repository Reconnaissance',
+    description: 'Batch pattern matching tool against GitHub to uncover exposed API keys and corporate credentials using targeted regexes.',
+    urlTemplate: 'https://github.com/tillson/git-hound',
+    directUrl: 'https://github.com/tillson/git-hound',
+    cliCommand: 'git-hound --subdomain-file {domain}',
+    tags: ['githound', 'pattern-matching', 'credentials', 'regex'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Scoring repository commit snippets for high-entropy secrets',
+  },
+  {
+    id: 'octosuite',
+    name: 'Octosuite',
+    category: '9. GitHub & Code Intelligence',
+    subcategory: 'GitHub Frameworks',
+    description: 'Advanced GitHub OSINT framework for investigating users, organizations, repositories, gists, and tracking commit email footprints.',
+    urlTemplate: 'https://github.com/rly0nheart/octosuite',
+    directUrl: 'https://github.com/rly0nheart/octosuite',
+    cliCommand: 'octosuite --user {username}',
+    tags: ['octosuite', 'github', 'osint', 'attribution'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Comprehensive user and organization profiling on GitHub',
+  },
+  {
+    id: 'searchdiggity',
+    name: 'SearchDiggity (Bishop Fox)',
+    category: '9. GitHub & Code Intelligence',
+    subcategory: 'Automated Dorking',
+    description: 'Bishop Fox\'s primary search engine attack tool automating Google and Bing dorks for sensitive file and code discovery.',
+    urlTemplate: 'https://bishopfox.com/tools/searchdiggity',
+    directUrl: 'https://bishopfox.com/',
+    tags: ['searchdiggity', 'bishopfox', 'dorking', 'automation'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Automated search engine security assessment runs',
+  },
+  {
+    id: 'foca',
+    name: 'FOCA (Fingerprinting Organizations with Collected Archives)',
+    category: '9. GitHub & Code Intelligence',
+    subcategory: 'Document Forensics',
+    description: 'Finds metadata and hidden information in office documents, PDFs, and spreadsheets discovered on web domains.',
+    urlTemplate: 'https://github.com/ElevenPaths/FOCA',
+    directUrl: 'https://www.telefonica.com/',
+    tags: ['foca', 'metadata', 'pdf', 'usernames'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Extracting user login names, printer paths, and internal server IPs from downloaded files',
+  },
+  {
+    id: 'metagoofil',
+    name: 'Metagoofil',
+    category: '9. GitHub & Code Intelligence',
+    subcategory: 'Document Forensics',
+    description: 'Information gathering tool designed for extracting metadata of public documents (pdf, doc, xls, ppt) available on target web pages.',
+    urlTemplate: 'https://github.com/opsdisk/metagoofil',
+    directUrl: 'https://github.com/opsdisk/metagoofil',
+    cliCommand: 'metagoofil -d {domain} -t pdf,doc,xls -l 100 -o files -f results.html',
+    tags: ['metagoofil', 'python', 'metadata', 'documents'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Downloading documents from Google searches and compiling metadata reports',
+  },
+
+  // ==========================================
+  // 10. Image, video and reverse-image intelligence
+  // ==========================================
+  {
+    id: 'google-lens',
+    name: 'Google Lens Visual Search',
+    category: '10. Image, Video & Reverse-Image',
+    subcategory: 'Reverse-Image Search',
+    description: 'State-of-the-art computer vision engine identifying landmarks, products, buildings, text in foreign scripts, and exact image duplicates.',
+    urlTemplate: 'https://lens.google.com/',
+    directUrl: 'https://lens.google.com/',
+    tags: ['lens', 'visual', 'computer-vision', 'landmarks'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Identifying obscure landmarks, signs, and physical product origins in photos',
+  },
+  {
+    id: 'tineye',
+    name: 'TinEye Reverse Image Search',
+    category: '10. Image, Video & Reverse-Image',
+    subcategory: 'Reverse-Image Search',
+    description: 'First image search engine on the web using image identification technology rather than keywords, sorting by earliest crawl date.',
+    urlTemplate: 'https://tineye.com/search/?url={target}',
+    directUrl: 'https://tineye.com/',
+    tags: ['tineye', 'oldest', 'provenance', 'reverse-image'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Finding the earliest historical publication date of an image on the internet',
+  },
+  {
+    id: 'bing-visual',
+    name: 'Bing Visual Search',
+    category: '10. Image, Video & Reverse-Image',
+    subcategory: 'Reverse-Image Search',
+    description: 'Microsoft\'s visual match engine with crop capabilities to search on specific cropped bounding boxes within a larger photo.',
+    urlTemplate: 'https://www.bing.com/visualsearch',
+    directUrl: 'https://www.bing.com/visualsearch',
+    tags: ['bing', 'visual', 'crop', 'search'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Cropping and isolating specific clothing, logos, or background objects in images',
+  },
+  {
+    id: 'yandex-images',
+    name: 'Yandex Reverse Images',
+    category: '10. Image, Video & Reverse-Image',
+    subcategory: 'Reverse-Image Search',
+    description: 'Widely considered the most powerful reverse facial recognition and background landscape matching engine publicly available.',
+    urlTemplate: 'https://yandex.com/images/search?rpt=imageview',
+    directUrl: 'https://yandex.com/images/',
+    tags: ['yandex', 'faces', 'landscapes', 'visual'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Facial recognition across social media profile photos',
+  },
+  {
+    id: 'exiftool',
+    name: 'ExifTool (Phil Harvey)',
+    category: '10. Image, Video & Reverse-Image',
+    subcategory: 'Metadata & Verification',
+    description: 'Platform-independent Perl library and command-line application for reading, writing and editing metadata in a wide variety of files.',
+    urlTemplate: 'https://exiftool.org/',
+    directUrl: 'https://exiftool.org/',
+    cliCommand: 'exiftool -G -a -s {target}',
+    tags: ['exiftool', 'exif', 'gps', 'camera-model'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Extracting camera make, lens serial, shutter count, and embedded GPS coordinates',
+  },
+  {
+    id: 'invid-weverify',
+    name: 'InVID-WeVerify Verification Plugin',
+    category: '10. Image, Video & Reverse-Image',
+    subcategory: 'Metadata & Verification',
+    description: 'Verification toolbox developed for journalists to debunk fake news and verify video keyframes, Twitter video metadata, and image integrity.',
+    urlTemplate: 'https://www.invid-project.eu/tools-and-services/invid-verification-plugin/',
+    directUrl: 'https://www.invid-project.eu/',
+    tags: ['invid', 'weverify', 'video-keyframes', 'fact-checking'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Splitting online videos into keyframes for individual reverse-image searches',
+  },
+  {
+    id: 'fotoforensics',
+    name: 'FotoForensics (ELA)',
+    category: '10. Image, Video & Reverse-Image',
+    subcategory: 'Metadata & Verification',
+    description: 'Digital image forensics tool using Error Level Analysis (ELA) to identify areas within an image that are at different compression levels.',
+    urlTemplate: 'https://fotoforensics.com/',
+    directUrl: 'https://fotoforensics.com/',
+    tags: ['fotoforensics', 'ela', 'tampering', 'photoshop'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Detecting digital tampering, Photoshop alterations, and cloned pixels in photos',
+  },
+  {
+    id: 'forensically',
+    name: 'Forensically (Jonas Wagner)',
+    category: '10. Image, Video & Reverse-Image',
+    subcategory: 'Metadata & Verification',
+    description: 'Free online set of tools for digital image forensics: clone detection, error level analysis, noise analysis, and luminance gradient.',
+    urlTemplate: 'https://29a.ch/photo-forensics/',
+    directUrl: 'https://29a.ch/photo-forensics/',
+    tags: ['forensically', 'clone-detection', 'magnifier', 'forensics'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Interactive in-browser clone detection and hidden watermark magnification',
+  },
+  {
+    id: 'google-earth',
+    name: 'Google Earth Web',
+    category: '10. Image, Video & Reverse-Image',
+    subcategory: 'Geolocation Verification',
+    description: '3D virtual globe rendering high-resolution satellite imagery, 3D terrain, building models, and street-level spatial perspectives.',
+    urlTemplate: 'https://earth.google.com/web/search/{target}',
+    directUrl: 'https://earth.google.com/',
+    tags: ['earth', '3d', 'satellite', 'terrain'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Aligning mountain ridge lines, building heights, and 3D terrain for geolocation',
+  },
+  {
+    id: 'google-maps',
+    name: 'Google Maps & Street View',
+    category: '10. Image, Video & Reverse-Image',
+    subcategory: 'Geolocation Verification',
+    description: 'Comprehensive mapping platform offering historical Street View captures, user-uploaded business photos, and business addresses.',
+    urlTemplate: 'https://www.google.com/maps/search/{target}',
+    directUrl: 'https://www.google.com/maps',
+    tags: ['maps', 'streetview', 'timeline', 'address'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Comparing ground-level photo clues against historical Street View timeline passes',
+  },
   {
     id: 'suncalc',
-    name: 'SunCalc Sunlight & Shadow Calculator',
-    category: 'Geolocation & Satellite',
-    subcategory: 'Chronolocation & Shadow Analysis',
-    description: 'Calculate sun movement and shadow lengths to pinpoint the exact time and location of photos/videos.',
+    name: 'SunCalc (Sun Position & Shadow Calculator)',
+    category: '10. Image, Video & Reverse-Image',
+    subcategory: 'Chronolocation & Shadows',
+    description: 'Calculates sun movement, sunlight phases, shadow lengths, and sun angle for any location on earth at any specified time.',
     urlTemplate: 'https://www.suncalc.org/',
     directUrl: 'https://www.suncalc.org/',
-    tags: ['shadows', 'sun', 'chronolocation'],
+    tags: ['suncalc', 'shadows', 'chronolocation', 'time-of-day'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Chronolocation: determining the exact date and hour a photograph was taken based on shadows',
+  },
+
+  // ==========================================
+  // 11. Geolocation and satellite intelligence (GEOINT)
+  // ==========================================
+  {
+    id: 'google-earth-pro',
+    name: 'Google Earth Pro (Desktop)',
+    category: '11. Geolocation & Satellite (GEOINT)',
+    subcategory: 'Satellite Imagery',
+    description: 'Desktop GIS application with historical satellite imagery time-sliders dating back decades, measurement tools, and KML/KMZ support.',
+    urlTemplate: 'https://www.google.com/earth/about/versions/#earth-pro',
+    directUrl: 'https://www.google.com/earth/versions/',
+    tags: ['desktop', 'historical-satellite', 'kml', 'measure'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Accessing satellite imagery captures from past years and decades',
+  },
+  {
+    id: 'openstreetmap',
+    name: 'OpenStreetMap (OSM)',
+    category: '11. Geolocation & Satellite (GEOINT)',
+    subcategory: 'Open Geographic Data',
+    description: 'Crowdsourced world map providing detailed infrastructure tags: street lamps, power lines, bollards, footpaths, and building footprints.',
+    urlTemplate: 'https://www.openstreetmap.org/search?query={target}',
+    directUrl: 'https://www.openstreetmap.org/',
+    tags: ['osm', 'mapping', 'crowdsourced', 'infrastructure'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Micro-geography clues: specific fence types, walking tracks, and power infrastructure',
   },
   {
     id: 'overpass-turbo',
-    name: 'Overpass Turbo (OpenStreetMap)',
-    category: 'Geolocation & Satellite',
-    subcategory: 'Geospatial Query Engine',
-    description: 'Web-based data mining tool for OpenStreetMap to find features matching specific visual or spatial criteria.',
+    name: 'Overpass Turbo (OSM Query Engine)',
+    category: '11. Geolocation & Satellite (GEOINT)',
+    subcategory: 'Open Geographic Data',
+    description: 'Web-based data mining tool for OpenStreetMap running Overpass API queries (e.g. locate all bridges within 10km of a hospital).',
     urlTemplate: 'https://overpass-turbo.eu/',
     directUrl: 'https://overpass-turbo.eu/',
-    tags: ['osm', 'geospatial', 'maps'],
+    tags: ['overpass', 'query', 'osm', 'gis'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Finding unique combinations of physical landmarks (e.g. church near a railroad)',
   },
   {
-    id: 'adsbexchange',
-    name: 'ADS-B Exchange Flight Tracking',
-    category: 'Geolocation & Satellite',
-    subcategory: 'Live Aircraft & Radar Tracking',
-    description: 'Unfiltered flight tracking cooperative tracking civilian and military aircraft worldwide.',
-    urlTemplate: 'https://globe.adsbexchange.com/',
-    directUrl: 'https://globe.adsbexchange.com/',
-    tags: ['aviation', 'radar', 'tracking'],
+    id: 'bellingcat-toolkit',
+    name: 'Bellingcat Online Investigation Toolkit',
+    category: '11. Geolocation & Satellite (GEOINT)',
+    subcategory: 'Investigation Frameworks',
+    description: 'Curated repository of investigative tools, verification guidelines, and satellite discovery methods curated by Bellingcat researchers.',
+    urlTemplate: 'https://bellingcat.gitbook.io/toolkit',
+    directUrl: 'https://bellingcat.gitbook.io/toolkit',
+    tags: ['bellingcat', 'investigative', 'verification', 'conflict-zones'],
     requiresApiKey: false,
     freeTier: true,
+    bestFor: 'Forensic methodologies for open-source verification and human rights monitoring',
+  },
+  {
+    id: 'sentinel-hub',
+    name: 'Sentinel Hub EO Browser',
+    category: '11. Geolocation & Satellite (GEOINT)',
+    subcategory: 'Satellite Imagery',
+    description: 'Explore satellite imagery from Sentinel-2, Landsat, and MODIS with false-color composite filters, updated every 5 days globally.',
+    urlTemplate: 'https://apps.sentinel-hub.com/eo-browser/',
+    directUrl: 'https://apps.sentinel-hub.com/eo-browser/',
+    tags: ['sentinel', 'multispectral', 'infrared', 'satellite'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Tracking recent environmental changes, fires, construction, and water levels',
+  },
+  {
+    id: 'nasa-worldview',
+    name: 'NASA Worldview',
+    category: '11. Geolocation & Satellite (GEOINT)',
+    subcategory: 'Satellite Imagery',
+    description: 'Interactive interface that allows you to visually explore Earth as it looks \'right now\' using near-real-time satellite imagery.',
+    urlTemplate: 'https://worldview.earthdata.nasa.gov/',
+    directUrl: 'https://worldview.earthdata.nasa.gov/',
+    tags: ['nasa', 'near-real-time', 'weather', 'fires'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Verifying historical weather, cloud cover, and wildfire smoke on a specific date',
+  },
+  {
+    id: 'copernicus-browser',
+    name: 'Copernicus Browser (ESA)',
+    category: '11. Geolocation & Satellite (GEOINT)',
+    subcategory: 'Satellite Imagery',
+    description: 'European Space Agency portal providing full open access to Sentinel-1 (Radar SAR), Sentinel-2 (Optical), and Sentinel-3 datasets.',
+    urlTemplate: 'https://browser.dataspace.copernicus.eu/',
+    directUrl: 'https://browser.dataspace.copernicus.eu/',
+    tags: ['copernicus', 'esa', 'radar-sar', 'satellite'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Synthetic Aperture Radar (SAR) imaging that penetrates clouds and night darkness',
+  },
+  {
+    id: 'mapillary',
+    name: 'Mapillary Street-Level Imagery',
+    category: '11. Geolocation & Satellite (GEOINT)',
+    subcategory: 'Street-Level Imagery',
+    description: 'Crowdsourced street-level imagery platform powered by computer vision, indexing road signs, traffic lights, and rural roads.',
+    urlTemplate: 'https://www.mapillary.com/app/?lat=0&lng=0&z=1.5',
+    directUrl: 'https://www.mapillary.com/',
+    tags: ['mapillary', 'crowdsourced', 'dashcam', 'streetview'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Street-level photos in remote areas where Google Street View has never driven',
+  },
+  {
+    id: 'kartaview',
+    name: 'KartaView (OpenStreetCam)',
+    category: '11. Geolocation & Satellite (GEOINT)',
+    subcategory: 'Street-Level Imagery',
+    description: 'Open source street-level imagery repository contributing dashcam imagery and road geometry to OpenStreetMap.',
+    urlTemplate: 'https://kartaview.org/map',
+    directUrl: 'https://kartaview.org/',
+    tags: ['kartaview', 'openstreetcam', 'dashcam', 'roads'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Alternative crowdsourced driver perspectives on international highway routes',
+  },
+  {
+    id: 'geoguessr',
+    name: 'GeoGuessr Practice & Road Markings',
+    category: '11. Geolocation & Satellite (GEOINT)',
+    subcategory: 'Geolocation Training',
+    description: 'Geography game and training ground for mastering road lines, bollard designs, utility pole shapes, and car meta across 100+ countries.',
+    urlTemplate: 'https://www.geoguessr.com/',
+    directUrl: 'https://www.geoguessr.com/',
+    tags: ['geoguessr', 'bollards', 'utility-poles', 'country-meta'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Training your intuition on country-specific road signs and utility pole designs',
+  },
+
+  // ==========================================
+  // 12. Dark web and threat intelligence
+  // ==========================================
+  {
+    id: 'tor-browser',
+    name: 'Tor Browser',
+    category: '12. Dark Web & Threat Intelligence',
+    subcategory: 'Onion Network Access',
+    description: 'The official secure web browser utilizing onion routing to access hidden services (.onion sites) anonymously.',
+    urlTemplate: 'https://www.torproject.org/',
+    directUrl: 'https://www.torproject.org/',
+    tags: ['tor', 'onion', 'dark-web', 'anonymity'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Safely opening .onion hidden services in an isolated environment',
+  },
+  {
+    id: 'ahmia',
+    name: 'Ahmia Onion Search Engine',
+    category: '12. Dark Web & Threat Intelligence',
+    subcategory: 'Dark Web Search',
+    description: 'Search engine for Tor hidden services that indexes legitimate, filtered onion sites while filtering abusive material.',
+    urlTemplate: 'https://ahmia.fi/search/?q={target}',
+    directUrl: 'https://ahmia.fi/',
+    tags: ['ahmia', 'onion', 'search-engine', 'darknet'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Clearnet searching of publicly indexed Tor hidden services and leak sites',
+  },
+  {
+    id: 'onionsearch',
+    name: 'OnionSearch CLI',
+    category: '12. Dark Web & Threat Intelligence',
+    subcategory: 'Dark Web Search',
+    description: 'Python script that scrapes URLs on multiple dark web search engines (Ahmia, Candle, Torch, Haystak, Excavo) simultaneously.',
+    urlTemplate: 'https://github.com/megadose/OnionSearch',
+    directUrl: 'https://github.com/megadose/OnionSearch',
+    cliCommand: 'onionsearch "{target}" --output results.txt',
+    tags: ['onionsearch', 'python', 'multi-engine', 'darknet'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Multi-engine command-line search across multiple dark web indexes',
+  },
+  {
+    id: 'pulsedive',
+    name: 'Pulsedive Threat Intelligence',
+    category: '12. Dark Web & Threat Intelligence',
+    subcategory: 'Threat Intelligence Feeds',
+    description: 'Community-driven threat intelligence platform that enriches IPs, domains, and URLs with risk factors and threat actor tags.',
+    urlTemplate: 'https://pulsedive.com/indicator/?ioc={target}',
+    directUrl: 'https://pulsedive.com/',
+    tags: ['pulsedive', 'indicators', 'ioc', 'risk-factors'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Fast indicator enrichment and automated risk score calculation',
+  },
+  {
+    id: 'alienvault-otx',
+    name: 'AlienVault OTX (Open Threat Exchange)',
+    category: '12. Dark Web & Threat Intelligence',
+    subcategory: 'Threat Intelligence Feeds',
+    description: 'Crowdsourced computer-security platform with over 140,000 participants who contribute threat data and indicators.',
+    urlTemplate: 'https://otx.alienvault.com/indicator/domain/{domain}',
+    directUrl: 'https://otx.alienvault.com/',
+    tags: ['alienvault', 'otx', 'pulses', 'ioc'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Correlating IP and domain indicators with published threat research \'pulses\'',
+  },
+  {
+    id: 'misp',
+    name: 'MISP Threat Sharing Platform',
+    category: '12. Dark Web & Threat Intelligence',
+    subcategory: 'Threat Intelligence Platforms',
+    description: 'Open source software solution for collecting, storing, distributing and sharing cyber security indicators and malware analysis.',
+    urlTemplate: 'https://www.misp-project.org/',
+    directUrl: 'https://www.misp-project.org/',
+    tags: ['misp', 'sharing', 'stix', 'taxii'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Standardized threat intelligence sharing between organizations (STIX/TAXII)',
+  },
+  {
+    id: 'opencti',
+    name: 'OpenCTI (Open Cyber Threat Intelligence)',
+    category: '12. Dark Web & Threat Intelligence',
+    subcategory: 'Threat Intelligence Platforms',
+    description: 'Open source platform allowing organizations to manage their cyber threat intelligence knowledge and observables.',
+    urlTemplate: 'https://www.opencti.io/',
+    directUrl: 'https://www.opencti.io/',
+    tags: ['opencti', 'knowledge-graph', 'adversaries', 'mitre'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Building enterprise knowledge graphs linking APT groups to CVEs and IOCs',
+  },
+  {
+    id: 'mitre-attack',
+    name: 'MITRE ATT&CK Matrix',
+    category: '12. Dark Web & Threat Intelligence',
+    subcategory: 'Adversary TTPs',
+    description: 'Globally-accessible knowledge base of adversary tactics and techniques based on real-world observations.',
+    urlTemplate: 'https://attack.mitre.org/',
+    directUrl: 'https://attack.mitre.org/',
+    tags: ['mitre', 'attack', 'ttp', 'adversaries'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Mapping observed adversary behaviors to standardized technique IDs (T1059, etc.)',
+  },
+  {
+    id: 'threatfox',
+    name: 'ThreatFox (abuse.ch)',
+    category: '12. Dark Web & Threat Intelligence',
+    subcategory: 'Threat Indicators (IOCs)',
+    description: 'Free platform from abuse.ch for sharing indicators of compromise (IOCs) associated with malware with the security community.',
+    urlTemplate: 'https://threatfox.abuse.ch/browse.php?search={target}',
+    directUrl: 'https://threatfox.abuse.ch/',
+    tags: ['threatfox', 'abusech', 'botnet', 'malware-ioc'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Live indicators of compromise for active malware campaigns and botnet drops',
+  },
+  {
+    id: 'urlhaus',
+    name: 'URLhaus (abuse.ch)',
+    category: '12. Dark Web & Threat Intelligence',
+    subcategory: 'Threat Indicators (IOCs)',
+    description: 'Community-driven project collecting, tracking and sharing malicious URLs that are being used for malware distribution.',
+    urlTemplate: 'https://urlhaus.abuse.ch/browse.php?search={target}',
+    directUrl: 'https://urlhaus.abuse.ch/',
+    tags: ['urlhaus', 'malware-urls', 'payloads', 'c2'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Checking if a domain or URL is actively serving ransomware or infostealer payloads',
+  },
+  {
+    id: 'malwarebazaar',
+    name: 'MalwareBazaar (abuse.ch)',
+    category: '12. Dark Web & Threat Intelligence',
+    subcategory: 'Malware Samples',
+    description: 'Repository for security researchers to collect and share malware samples with signatures, Yara rules, and unpacking hashes.',
+    urlTemplate: 'https://bazaar.abuse.ch/browse.php?search={target}',
+    directUrl: 'https://bazaar.abuse.ch/',
+    tags: ['malwarebazaar', 'samples', 'hashes', 'yara'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Downloading verified malware samples and checking SHA256 executable signatures',
+  },
+  {
+    id: 'feodo-tracker',
+    name: 'Feodo Tracker (abuse.ch)',
+    category: '12. Dark Web & Threat Intelligence',
+    subcategory: 'Botnet C2 Tracking',
+    description: 'Tracks command and control (C2) servers associated with Emotet, QakBot, TrickBot, and Dridex banking trojans.',
+    urlTemplate: 'https://feodotracker.abuse.ch/browse/',
+    directUrl: 'https://feodotracker.abuse.ch/',
+    tags: ['feodo', 'c2', 'botnets', 'emotet'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Verifying if an IP belongs to an active banking trojan or botnet controller',
+  },
+
+  // ==========================================
+  // 13. Breach intelligence and leaked credential exposure
+  // ==========================================
+  {
+    id: 'hibp-breach',
+    name: 'Have I Been Pwned (HIBP)',
+    category: '13. Breach Intel & Leaked Credentials',
+    subcategory: 'Breach Verification',
+    description: 'Check if your email or phone number is in a data breach. Free search across hundreds of verified commercial breaches.',
+    urlTemplate: 'https://haveibeenpwned.com/unifiedsearch/{target}',
+    directUrl: 'https://haveibeenpwned.com/',
+    tags: ['hibp', 'breaches', 'credentials', 'compromised'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Ethical verification of whether an email address was leaked in past breaches',
+  },
+  {
+    id: 'mozilla-monitor',
+    name: 'Mozilla Monitor',
+    category: '13. Breach Intel & Leaked Credentials',
+    subcategory: 'Breach Monitoring',
+    description: 'Free service backed by Have I Been Pwned alerting users when their personal info surfaces in corporate breach leaks.',
+    urlTemplate: 'https://monitor.mozilla.org/',
+    directUrl: 'https://monitor.mozilla.org/',
+    tags: ['mozilla', 'monitor', 'privacy', 'alerts'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Consumer breach monitoring and automatic privacy removal workflows',
+  },
+  {
+    id: 'dehashed',
+    name: 'DeHashed Breach Engine',
+    category: '13. Breach Intel & Leaked Credentials',
+    subcategory: 'Breach Search Engines',
+    description: 'Asset and breach search engine designed for security analysts, threat intelligence personnel, and authorized asset auditing.',
+    urlTemplate: 'https://www.dehashed.com/search?query={target}',
+    directUrl: 'https://www.dehashed.com/',
+    tags: ['dehashed', 'credentials', 'hashes', 'breaches'],
+    requiresApiKey: true,
+    freeTier: false,
+    bestFor: 'Authorized deep credential audit: finding password hashes linked to corporate domains',
+  },
+  {
+    id: 'intelligence-x',
+    name: 'Intelligence X (intelx.io)',
+    category: '13. Breach Intel & Leaked Credentials',
+    subcategory: 'Breach Search Engines',
+    description: 'Search engine and data archive that indexes pastebin sites, darknet forums, document leaks, and public data dumps.',
+    urlTemplate: 'https://intelx.io/?s={target}',
+    directUrl: 'https://intelx.io/',
+    tags: ['intelx', 'archives', 'darknet', 'pastes'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Historical paste search and finding darknet forum leak archives',
+  },
+  {
+    id: 'leakcheck',
+    name: 'LeakCheck.io',
+    category: '13. Breach Intel & Leaked Credentials',
+    subcategory: 'Breach Search Engines',
+    description: 'Data breach search service providing fast lookup across thousands of combined breach databases with password strength detection.',
+    urlTemplate: 'https://leakcheck.io/search?query={target}',
+    directUrl: 'https://leakcheck.io/',
+    tags: ['leakcheck', 'passwords', 'combo-lists', 'credentials'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Identifying breached accounts and corporate credential reuse vulnerabilities',
+  },
+  {
+    id: 'constella',
+    name: 'Constella Intelligence',
+    category: '13. Breach Intel & Leaked Credentials',
+    subcategory: 'Identity Intelligence',
+    description: 'Digital identity threat intelligence platform monitoring billions of compromised identity records across surface and dark web.',
+    urlTemplate: 'https://constellaintelligence.com/',
+    directUrl: 'https://constellaintelligence.com/',
+    tags: ['constella', 'identity', 'dark-web', 'corporate'],
+    requiresApiKey: true,
+    freeTier: false,
+    bestFor: 'Enterprise executive protection and identity exposure risk scoring',
+  },
+  {
+    id: 'hudson-rock',
+    name: 'Hudson Rock Infostealer Intelligence',
+    category: '13. Breach Intel & Leaked Credentials',
+    subcategory: 'Infostealer Intelligence',
+    description: 'Cybercrime intelligence platform tracking credentials stolen by RedLine, Raccoon, Vidar, and Lumma infostealer malwares.',
+    urlTemplate: 'https://cavalier.hudsonrock.com/search?domain={domain}',
+    directUrl: 'https://www.hudsonrock.com/',
+    tags: ['hudsonrock', 'infostealers', 'redline', 'credentials'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Checking if employee computers have been infected with infostealers',
+  },
+  {
+    id: 'flare-systems',
+    name: 'Flare Systems External Threat Exposure',
+    category: '13. Breach Intel & Leaked Credentials',
+    subcategory: 'Continuous Exposure',
+    description: 'Continuous threat exposure management monitoring dark web markets, GitHub public leaks, and Telegram cybercrime channels.',
+    urlTemplate: 'https://flare.io/',
+    directUrl: 'https://flare.io/',
+    tags: ['flare', 'darkweb', 'telegram', 'leaks'],
+    requiresApiKey: true,
+    freeTier: false,
+    bestFor: 'Real-time alerting for stolen corporate session tokens and cloud keys',
+  },
+
+  // ==========================================
+  // 14. Cloud, exposed services and attack-surface intelligence
+  // ==========================================
+  {
+    id: 's3scanner',
+    name: 'S3Scanner',
+    category: '14. Cloud & Attack Surface Intelligence',
+    subcategory: 'Cloud Storage Recon',
+    description: 'Scans for open AWS S3 buckets and dumps their contents to discover exposed corporate assets and backups.',
+    urlTemplate: 'https://github.com/sa7mon/S3Scanner',
+    directUrl: 'https://github.com/sa7mon/S3Scanner',
+    cliCommand: 's3scanner scan --bucket {domain}',
+    tags: ['s3scanner', 'aws', 's3', 'buckets'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Auditing AWS S3 permissions and identifying publicly readable buckets',
+  },
+  {
+    id: 'cloudennum',
+    name: 'CloudEnum',
+    category: '14. Cloud & Attack Surface Intelligence',
+    subcategory: 'Cloud Storage Recon',
+    description: 'Multi-cloud OSINT tool to enumerate public resources in AWS (S3, Apps), Azure (Blobs, Tables), and Google Cloud (Storage).',
+    urlTemplate: 'https://github.com/initstring/cloud_enum',
+    directUrl: 'https://github.com/initstring/cloud_enum',
+    cliCommand: 'python cloud_enum.py -k {domain}',
+    tags: ['cloudennum', 'aws', 'azure', 'gcp'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Simultaneously testing storage permutations across AWS, Azure, and GCP',
+  },
+  {
+    id: 'scoutsuite',
+    name: 'ScoutSuite',
+    category: '14. Cloud & Attack Surface Intelligence',
+    subcategory: 'Cloud Posture',
+    description: 'Open source multi-cloud security-auditing tool that gathers configuration data for security assessment of AWS, Azure, GCP, and Alibaba Cloud.',
+    urlTemplate: 'https://github.com/nccgroup/ScoutSuite',
+    directUrl: 'https://github.com/nccgroup/ScoutSuite',
+    cliCommand: 'scout aws --profile default',
+    tags: ['scoutsuite', 'audit', 'nccgroup', 'cloud-posture'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Auditing multi-cloud infrastructure configurations against security best practices',
+  },
+  {
+    id: 'prowler',
+    name: 'Prowler',
+    category: '14. Cloud & Attack Surface Intelligence',
+    subcategory: 'Cloud Posture',
+    description: 'Open source security tool for AWS, Azure, GCP and Kubernetes to perform security assessments, audits, and compliance monitoring (CIS benchmarks).',
+    urlTemplate: 'https://github.com/prowler-cloud/prowler',
+    directUrl: 'https://prowler.com/',
+    cliCommand: 'prowler aws --compliance cis_1.5_aws',
+    tags: ['prowler', 'compliance', 'cis', 'aws'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Automated CIS compliance and security baseline assessments',
+  },
+  {
+    id: 'trivy',
+    name: 'Trivy (Aqua Security)',
+    category: '14. Cloud & Attack Surface Intelligence',
+    subcategory: 'Artifact Scanning',
+    description: 'Comprehensive security scanner for container images, Git repositories, filesystems, and Kubernetes clusters.',
+    urlTemplate: 'https://github.com/aquasecurity/trivy',
+    directUrl: 'https://trivy.dev/',
+    cliCommand: 'trivy fs . --scanners vuln,secret,config',
+    tags: ['trivy', 'containers', 'cve', 'aquasecurity'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Scanning software artifacts for known CVEs and misconfigured Dockerfiles',
+  },
+  {
+    id: 'nuclei',
+    name: 'Nuclei (ProjectDiscovery)',
+    category: '14. Cloud & Attack Surface Intelligence',
+    subcategory: 'Vulnerability Scanning',
+    description: 'Fast and customizable vulnerability scanner based on simple YAML-based DSL templates to send requests across targets with zero noise.',
+    urlTemplate: 'https://github.com/projectdiscovery/nuclei',
+    directUrl: 'https://nuclei.projectdiscovery.io/',
+    cliCommand: 'nuclei -u {target} -tags cve,exposure,misconfig -silent',
+    tags: ['nuclei', 'templates', 'cve', 'projectdiscovery'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Targeted template-based checks for specific critical CVEs and misconfigurations',
+  },
+  {
+    id: 'nmap',
+    name: 'Nmap (Network Mapper)',
+    category: '14. Cloud & Attack Surface Intelligence',
+    subcategory: 'Port & Service Discovery',
+    description: 'The standard network exploration tool and security / port scanner. Supports NSE scripting, OS detection, and banner grabbing.',
+    urlTemplate: 'https://nmap.org/',
+    directUrl: 'https://nmap.org/',
+    cliCommand: 'nmap -sV -sC -Pn {ip} -p 80,443,8080,8443,22',
+    tags: ['nmap', 'ports', 'nse', 'network'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Accurate service version detection and port state auditing',
+  },
+  {
+    id: 'naabu',
+    name: 'Naabu (ProjectDiscovery)',
+    category: '14. Cloud & Attack Surface Intelligence',
+    subcategory: 'Port & Service Discovery',
+    description: 'Fast port scanner written in Go designed to enumerate valid ports on hosts in a fast and reliable manner with SYN/CONNECT scans.',
+    urlTemplate: 'https://github.com/projectdiscovery/naabu',
+    directUrl: 'https://github.com/projectdiscovery/naabu',
+    cliCommand: 'naabu -host {ip} -top-ports 1000 -silent',
+    tags: ['naabu', 'ports', 'fast', 'syn-scan'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Blazing fast full-range port scans piped directly into httpx and nuclei',
+  },
+  {
+    id: 'projectdiscovery-suite',
+    name: 'ProjectDiscovery Suite',
+    category: '14. Cloud & Attack Surface Intelligence',
+    subcategory: 'Attack Surface Management',
+    description: 'Open source ecosystem of modular tools (subfinder, naabu, httpx, katana, nuclei) engineered for automated attack surface discovery.',
+    urlTemplate: 'https://projectdiscovery.io/',
+    directUrl: 'https://projectdiscovery.io/',
+    tags: ['projectdiscovery', 'suite', 'automation', 'cli'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Assembling Unix-style command-line reconnaissance and audit pipelines',
+  },
+  {
+    id: 'leakix',
+    name: 'LeakIX Exposed Services Engine',
+    category: '14. Cloud & Attack Surface Intelligence',
+    subcategory: 'Exposed Services',
+    description: 'Search engine indexing exposed services, open databases (Elasticsearch, MongoDB), and leak signals across global IP subnets.',
+    urlTemplate: 'https://leakix.net/search?scope=leak&q={domain}',
+    directUrl: 'https://leakix.net/',
+    tags: ['leakix', 'exposed-databases', 'services', 'leaks'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Locating unauthenticated databases and publicly exposed internal dashboards',
+  },
+
+  // ==========================================
+  // 15. Document metadata and digital forensics
+  // ==========================================
+  {
+    id: 'exiftool-forensics',
+    name: 'ExifTool Command Suite',
+    category: '15. Document Metadata & Digital Forensics',
+    subcategory: 'Metadata Analysis',
+    description: 'Extracts deep metadata from PDF, DOCX, XLSX, MP4, JPEG, and TIFF files: authors, software versions, edit times, and revision numbers.',
+    urlTemplate: 'https://exiftool.org/',
+    directUrl: 'https://exiftool.org/',
+    cliCommand: 'exiftool -a -u -g1 document.pdf',
+    tags: ['exiftool', 'forensics', 'metadata', 'pdf'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Unmasking software version strings and original user login names in corporate documents',
+  },
+  {
+    id: 'foca-forensics',
+    name: 'FOCA Analysis Framework',
+    category: '15. Document Metadata & Digital Forensics',
+    subcategory: 'Metadata Analysis',
+    description: 'Extracts document properties in bulk from web domains to reconstruct server architectures, printer shares, and intranet usernames.',
+    urlTemplate: 'https://github.com/ElevenPaths/FOCA',
+    directUrl: 'https://github.com/ElevenPaths/FOCA',
+    tags: ['foca', 'windows', 'documents', 'network-map'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Building organizational charts and Active Directory username lists from documents',
+  },
+  {
+    id: 'pdfinfo',
+    name: 'PDFinfo (Poppler)',
+    category: '15. Document Metadata & Digital Forensics',
+    subcategory: 'Document Forensics',
+    description: 'Standard utility to print the contents of the \'Info\' dictionary (author, creator, producer, creation date) of a PDF file.',
+    urlTemplate: 'https://poppler.freedesktop.org/',
+    directUrl: 'https://poppler.freedesktop.org/',
+    cliCommand: 'pdfinfo document.pdf',
+    tags: ['pdfinfo', 'poppler', 'pdf', 'properties'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Quick terminal inspection of PDF creation software and linear optimization',
+  },
+  {
+    id: 'pdf-parser',
+    name: 'pdf-parser.py (Didier Stevens)',
+    category: '15. Document Metadata & Digital Forensics',
+    subcategory: 'Document Forensics',
+    description: 'Parses a PDF document to identify the fundamental elements used in the analyzed file, extracting obfuscated JavaScript streams and objects.',
+    urlTemplate: 'https://blog.didierstevens.com/programs/pdf-tools/',
+    directUrl: 'https://blog.didierstevens.com/',
+    cliCommand: 'pdf-parser.py -s /JavaScript document.pdf',
+    tags: ['pdf-parser', 'didierstevens', 'malicious-pdf', 'streams'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Deconstructing malicious PDF files and finding hidden exploit streams',
+  },
+  {
+    id: 'oletools',
+    name: 'oletools (Decalage)',
+    category: '15. Document Metadata & Digital Forensics',
+    subcategory: 'Document Forensics',
+    description: 'Package of Python tools to analyze Microsoft OLE2 files (Office 97-2003 formats, RTF) and inspect malicious VBA macros.',
+    urlTemplate: 'https://github.com/decalage2/oletools',
+    directUrl: 'https://www.decalage.info/python/oletools',
+    cliCommand: 'olevba document.docm',
+    tags: ['oletools', 'olevba', 'macros', 'office'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Extracting and analyzing malicious VBA macros in phishing attachments',
+  },
+  {
+    id: 'autopsy',
+    name: 'Autopsy Forensic Browser',
+    category: '15. Document Metadata & Digital Forensics',
+    subcategory: 'Filesystem Forensics',
+    description: 'Premier open source digital forensics platform used by law enforcement and corporate examiners to investigate hard drives and disk images.',
+    urlTemplate: 'https://www.autopsy.com/',
+    directUrl: 'https://www.autopsy.com/',
+    tags: ['autopsy', 'disk-images', 'timeline', 'carving'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Full disk image analysis, file carving, and web history reconstruction',
+  },
+  {
+    id: 'sleuthkit',
+    name: 'The Sleuth Kit (TSK)',
+    category: '15. Document Metadata & Digital Forensics',
+    subcategory: 'Filesystem Forensics',
+    description: 'Collection of command-line tools that allow you to inspect volume and file system data of disk images (raw, Expert Witness, AFF).',
+    urlTemplate: 'https://www.sleuthkit.org/',
+    directUrl: 'https://www.sleuthkit.org/',
+    cliCommand: 'fls -r image.dd',
+    tags: ['sleuthkit', 'tsk', 'inodes', 'filesystem'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Command-line filesystem traversal and deleted inode recovery',
+  },
+  {
+    id: 'wireshark',
+    name: 'Wireshark Protocol Analyzer',
+    category: '15. Document Metadata & Digital Forensics',
+    subcategory: 'Network Forensics',
+    description: 'The world\'s foremost and widely-used network protocol analyzer. It lets you see what\'s happening on your network at a microscopic level.',
+    urlTemplate: 'https://www.wireshark.org/',
+    directUrl: 'https://www.wireshark.org/',
+    cliCommand: 'tshark -r capture.pcap -Y "http.request" -T fields -e http.host',
+    tags: ['wireshark', 'tshark', 'pcap', 'packet-analysis'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Microscopic dissection of PCAP packet captures and TLS handshake negotiation',
+  },
+  {
+    id: 'networkminer',
+    name: 'NetworkMiner (Netresec)',
+    category: '15. Document Metadata & Digital Forensics',
+    subcategory: 'Network Forensics',
+    description: 'Network Forensic Analysis Tool (NFAT) that extracts artifacts, operating systems, sessions, hostnames, and transferred files from PCAP files.',
+    urlTemplate: 'https://www.netresec.com/?page=NetworkMiner',
+    directUrl: 'https://www.netresec.com/',
+    tags: ['networkminer', 'nfat', 'pcap', 'file-carving'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Automatically extracting reconstructed images and files transmitted across a network',
+  },
+  {
+    id: 'volatility',
+    name: 'Volatility Memory Forensics',
+    category: '15. Document Metadata & Digital Forensics',
+    subcategory: 'Memory Forensics',
+    description: 'The world\'s most widely used memory forensics framework for extracting digital artifacts from volatile RAM memory dumps.',
+    urlTemplate: 'https://www.volatilityfoundation.org/',
+    directUrl: 'https://github.com/volatilityfoundation/volatility3',
+    cliCommand: 'vol.py -f memory.raw windows.pslist',
+    tags: ['volatility', 'ram', 'memory-dump', 'malware'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Extracting running malware processes, unencrypted passwords, and network sockets from RAM',
+  },
+
+  // ==========================================
+  // 16. Public records, companies and financial intelligence
+  // ==========================================
+  {
+    id: 'opencorporates',
+    name: 'OpenCorporates',
+    category: '16. Public Records & Financial Intelligence',
+    subcategory: 'Company Registries',
+    description: 'The largest open database of companies in the world, aggregating corporate filings, directors, and subsidiaries across 140+ jurisdictions.',
+    urlTemplate: 'https://opencorporates.com/companies?q={domain}',
+    directUrl: 'https://opencorporates.com/',
+    tags: ['opencorporates', 'officers', 'directors', 'subsidiaries'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Tracing corporate legal ownership, directors, and cross-border subsidiaries',
+  },
+  {
+    id: 'sec-edgar',
+    name: 'SEC EDGAR Filings',
+    category: '16. Public Records & Financial Intelligence',
+    subcategory: 'Financial Disclosures',
+    description: 'U.S. Securities and Exchange Commission electronic filing system indexing annual reports (10-K), quarterly reports (10-Q), and insider trades.',
+    urlTemplate: 'https://www.sec.gov/edgar/searchedgar/companysearch?companyName={domain}',
+    directUrl: 'https://www.sec.gov/edgar/searchedgar/companysearch',
+    tags: ['sec', 'edgar', '10k', 'financials'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Examining official audited financial reports, executive salaries, and legal risks',
+  },
+  {
+    id: 'gleif-lei',
+    name: 'GLEIF LEI Search',
+    category: '16. Public Records & Financial Intelligence',
+    subcategory: 'Financial Disclosures',
+    description: 'Global Legal Entity Identifier Foundation database providing unambiguous verification of legal entities engaged in financial transactions.',
+    urlTemplate: 'https://search.gleif.org/#/search/fulltextFilter={domain}',
+    directUrl: 'https://search.gleif.org/',
+    tags: ['gleif', 'lei', 'financial', 'entity-id'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Confirming the ultimate parent entity and legal registration of multinational banks and firms',
+  },
+  {
+    id: 'companies-house',
+    name: 'Companies House (UK Government)',
+    category: '16. Public Records & Financial Intelligence',
+    subcategory: 'Company Registries',
+    description: 'Official UK registrar of companies detailing filing histories, accounts, shareholder identities, and officers with significant control.',
+    urlTemplate: 'https://find-and-update.company-information.service.gov.uk/search?q={domain}',
+    directUrl: 'https://find-and-update.company-information.service.gov.uk/',
+    tags: ['companies-house', 'uk', 'directors', 'shareholders'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Searching UK registered businesses, active directors, and official accounts',
+  },
+  {
+    id: 'mca-gov-in',
+    name: 'MCA Company/LLP Master Data (India)',
+    category: '16. Public Records & Financial Intelligence',
+    subcategory: 'Company Registries',
+    description: 'Ministry of Corporate Affairs portal for Indian corporate entities, registered directors (DIN), capital structure, and charges.',
+    urlTemplate: 'https://www.mca.gov.in/mcafoportal/viewCompanyMasterData.do',
+    directUrl: 'https://www.mca.gov.in/',
+    tags: ['mca', 'india', 'cin', 'directors'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Verifying Corporate Identification Numbers (CIN) and directors of Indian enterprises',
+  },
+  {
+    id: 'google-patents',
+    name: 'Google Patents Search',
+    category: '16. Public Records & Financial Intelligence',
+    subcategory: 'Patents & Research',
+    description: 'Search engine indexing over 120 million patent publications from 100+ patent offices worldwide with full-text search.',
+    urlTemplate: 'https://patents.google.com/?q={domain}',
+    directUrl: 'https://patents.google.com/',
+    tags: ['patents', 'inventors', 'intellectual-property', 'research'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Uncovering inventors, proprietary technical architecture, and patent filings',
+  },
+  {
+    id: 'lens-org',
+    name: 'Lens.org',
+    category: '16. Public Records & Financial Intelligence',
+    subcategory: 'Patents & Research',
+    description: 'Open platform serving comprehensive patent and scholarly knowledge graphs with citation trees and family trees.',
+    urlTemplate: 'https://www.lens.org/lens/search/patent/list?q={domain}',
+    directUrl: 'https://www.lens.org/',
+    tags: ['lens', 'citations', 'patents', 'academic'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Mapping scientific citations and international patent family connections',
+  },
+  {
+    id: 'crossref',
+    name: 'Crossref Metadata Search',
+    category: '16. Public Records & Financial Intelligence',
+    subcategory: 'Academic Discovery',
+    description: 'Official Digital Object Identifier (DOI) registration agency indexing millions of academic publications, grants, and authors.',
+    urlTemplate: 'https://search.crossref.org/?q={target}',
+    directUrl: 'https://search.crossref.org/',
+    tags: ['crossref', 'doi', 'academic', 'authors'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Identifying research grant funding, co-authors, and peer-reviewed papers',
+  },
+  {
+    id: 'openalex',
+    name: 'OpenAlex Scientific Index',
+    category: '16. Public Records & Financial Intelligence',
+    subcategory: 'Academic Discovery',
+    description: 'Fully open catalog of the global research system: scientific papers, researcher profiles, institutions, and source journals.',
+    urlTemplate: 'https://openalex.org/works?search={target}',
+    directUrl: 'https://openalex.org/',
+    tags: ['openalex', 'scholarly', 'institutions', 'papers'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Tracing research institution affiliations and scientist publication history',
+  },
+  {
+    id: 'worldbank-data',
+    name: 'World Bank Open Data',
+    category: '16. Public Records & Financial Intelligence',
+    subcategory: 'Economic Data',
+    description: 'Free and open access to global development data, country macroeconomics, GDP indicators, and demographic indicators.',
+    urlTemplate: 'https://data.worldbank.org/indicator?q={target}',
+    directUrl: 'https://data.worldbank.org/',
+    tags: ['worldbank', 'economics', 'macro', 'development'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Contextualizing regional economic stability and telecommunications penetration',
+  },
+
+  // ==========================================
+  // 17. Automated OSINT frameworks
+  // ==========================================
+  {
+    id: 'spiderfoot-framework',
+    name: 'SpiderFoot Framework',
+    category: '17. Automated OSINT Frameworks',
+    subcategory: 'Broad Automation',
+    description: 'Automates collection across domains, IPs, emails, usernames, and other indicators using 200+ integrated modules.',
+    urlTemplate: 'https://github.com/smicallef/spiderfoot',
+    directUrl: 'https://github.com/smicallef/spiderfoot',
+    cliCommand: 'sf.py -s {target} -m all -o csv',
+    tags: ['spiderfoot', 'automated', 'broad', 'modules'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Broad automated reconnaissance across hundreds of data sources',
+  },
+  {
+    id: 'maltego-framework',
+    name: 'Maltego Platform',
+    category: '17. Automated OSINT Frameworks',
+    subcategory: 'Link Analysis',
+    description: 'Connects entities such as people, domains, organizations, and infrastructure into interactive relationship graphs.',
+    urlTemplate: 'https://www.maltego.com/',
+    directUrl: 'https://www.maltego.com/',
+    tags: ['maltego', 'entities', 'graph', 'investigations'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Link analysis and complex investigative visualizations',
+  },
+  {
+    id: 'recon-ng-framework',
+    name: 'Recon-ng Framework',
+    category: '17. Automated OSINT Frameworks',
+    subcategory: 'Repeatable Workflows',
+    description: 'Modular reconnaissance framework with data-source integrations, designed for repeatable command-line workflows.',
+    urlTemplate: 'https://github.com/lanmaster53/recon-ng',
+    directUrl: 'https://github.com/lanmaster53/recon-ng',
+    cliCommand: 'recon-ng -w default',
+    tags: ['recon-ng', 'modular', 'cli', 'automation'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Repeatable command-line workflows with organized database tracking',
+  },
+  {
+    id: 'owasp-amass-framework',
+    name: 'OWASP Amass Engine',
+    category: '17. Automated OSINT Frameworks',
+    subcategory: 'Attack Surface Mapping',
+    description: 'Focuses on external attack-surface mapping and network asset discovery using graph databases and active reconnaissance.',
+    urlTemplate: 'https://github.com/owasp-amass/amass',
+    directUrl: 'https://github.com/owasp-amass/amass',
+    cliCommand: 'amass enum -d {domain} -passive',
+    tags: ['amass', 'attack-surface', 'network', 'discovery'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Domain and infrastructure attack-surface reconnaissance',
+  },
+  {
+    id: 'osint-framework-engine',
+    name: 'OSINT Framework Taxonomy',
+    category: '17. Automated OSINT Frameworks',
+    subcategory: 'Resource Directory',
+    description: 'A categorized directory of tools and resources rather than an automated collection engine, organizing techniques by category.',
+    urlTemplate: 'https://osintframework.com/',
+    directUrl: 'https://osintframework.com/',
+    tags: ['osintframework', 'directory', 'methodology', 'reference'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Discovering tools and workflows tailored for a specific investigation',
+  },
+
+  // ==========================================
+  // 18. OSINT toolkits and directories
+  // ==========================================
+  {
+    id: 'bellingcat-toolkit-directory',
+    name: 'Bellingcat Toolkit',
+    category: '18. Curated Toolkits & Starter Guide',
+    subcategory: 'Curated Collections',
+    description: 'Collection of investigative and verification tools curated by Bellingcat researchers for open-source investigators and journalists.',
+    urlTemplate: 'https://bellingcat.gitbook.io/toolkit',
+    directUrl: 'https://bellingcat.gitbook.io/toolkit',
+    tags: ['bellingcat', 'toolkit', 'investigative', 'verification'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Investigative and verification tools',
+  },
+  {
+    id: 'inteltechniques-directory',
+    name: 'IntelTechniques',
+    category: '18. Curated Toolkits & Starter Guide',
+    subcategory: 'Curated Collections',
+    description: 'Online investigative resources, podcast notes, and search forms developed by Michael Bazzell for digital investigators.',
+    urlTemplate: 'https://inteltechniques.com/',
+    directUrl: 'https://inteltechniques.com/',
+    tags: ['inteltechniques', 'bazzell', 'resources', 'search'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Online investigative resources and private workflows',
+  },
+  {
+    id: 'awesome-osint',
+    name: 'Awesome OSINT',
+    category: '18. Curated Toolkits & Starter Guide',
+    subcategory: 'Curated Collections',
+    description: 'Community-maintained list of amazingly awesome OSINT tools and resources covering every intelligence domain.',
+    urlTemplate: 'https://github.com/jivoi/awesome-osint',
+    directUrl: 'https://github.com/jivoi/awesome-osint',
+    tags: ['awesome', 'github', 'community', 'collection'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Community-maintained tool collection and software repositories',
+  },
+  {
+    id: 'trace-labs',
+    name: 'Trace Labs',
+    category: '18. Curated Toolkits & Starter Guide',
+    subcategory: 'Curated Collections',
+    description: 'Non-profit organization using crowdsourced OSINT to help locate missing persons around the world through CTF operations.',
+    urlTemplate: 'https://www.tracelabs.org/',
+    directUrl: 'https://www.tracelabs.org/',
+    tags: ['tracelabs', 'missing-persons', 'ctf', 'humanitarian'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'OSINT resources and missing-person investigations',
+  },
+  {
+    id: 'osint-combine',
+    name: 'OSINT Combine',
+    category: '18. Curated Toolkits & Starter Guide',
+    subcategory: 'Curated Collections',
+    description: 'Investigation tools, training resources, and web-based scraping utilities for national security and corporate intelligence teams.',
+    urlTemplate: 'https://www.osintcombine.com/',
+    directUrl: 'https://www.osintcombine.com/',
+    tags: ['combine', 'training', 'professional', 'tools'],
+    requiresApiKey: false,
+    freeTier: true,
+    bestFor: 'Investigation tools and professional training resources',
+  },
+];
+
+export const STARTER_WORKFLOW_STEPS = [
+  {
+    step: 1,
+    title: 'Domain & Infrastructure Discovery',
+    tools: 'OWASP Amass, Subfinder, crt.sh',
+    purpose: 'Enumerate all valid subdomains, root domains, and issued TLS certificates.',
+    cli: 'subfinder -d {domain} -silent | httpx -status-code',
+  },
+  {
+    step: 2,
+    title: 'Internet Intelligence & Services',
+    tools: 'Shodan, Censys, VirusTotal',
+    purpose: 'Inspect exposed ports, web servers, cloud providers, and historical reputation.',
+    cli: 'shodan host {ip}',
+  },
+  {
+    step: 3,
+    title: 'Website Analysis & Fingerprinting',
+    tools: 'Wappalyzer, WhatWeb, urlscan.io',
+    purpose: 'Identify underlying CMS, frameworks, server headers, and third-party JS scripts.',
+    cli: 'whatweb -a 3 {target}',
+  },
+  {
+    step: 4,
+    title: 'URL & Endpoint Discovery',
+    tools: 'Katana, gau, LinkFinder',
+    purpose: 'Extract all web parameters, API routes, and hidden JavaScript endpoints.',
+    cli: 'katana -u {target} -jc | grep "\\.js"',
+  },
+  {
+    step: 5,
+    title: 'Username & Identity Attribution',
+    tools: 'Sherlock, Maigret, WhatsMyName',
+    purpose: 'Discover cross-platform social handles, developer accounts, and profile dossiers.',
+    cli: 'sherlock {username} --timeout 5',
+  },
+  {
+    step: 6,
+    title: 'Automated Multi-Source Collection',
+    tools: 'SpiderFoot, Recon-ng',
+    purpose: 'Run broad asynchronous modules to correlate emails, phone numbers, and WHOIS.',
+    cli: 'sf.py -s {target} -m all -o csv',
+  },
+  {
+    step: 7,
+    title: 'Evidence Verification & Reporting',
+    tools: 'ExifTool, Wireshark, Maltego',
+    purpose: 'Extract document metadata, inspect packet traces, and assemble link analysis graphs.',
+    cli: 'exiftool -a -u -g1 document.pdf',
   },
 ];
 
 export default function OsintFrameworkPage() {
   const navigate = useNavigate();
-  const [activeTarget, setActiveTarget] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [searchParams] = useSearchParams();
+
+  const initialTarget = searchParams.get('target') || '';
+  const [activeTarget, setActiveTarget] = useState(initialTarget);
+  const [selectedCategory, setSelectedCategory] = useState<string>('All Tools');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showStarterGuide, setShowStarterGuide] = useState(false);
 
-  // Categories list
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    OSINT_FRAMEWORK_DATA.forEach(t => set.add(t.category));
-    return ['All', ...Array.from(set)];
-  }, []);
+  // Helper to extract components from active target
+  const { domain, username, email, ip, cleanTarget } = useMemo(() => {
+    const raw = activeTarget.trim();
+    if (!raw) {
+      return { domain: 'example.com', username: 'targetuser', email: 'user@example.com', ip: '1.1.1.1', cleanTarget: 'example.com' };
+    }
 
-  // Filtered tools
-  const filteredTools = useMemo(() => {
-    return OSINT_FRAMEWORK_DATA.filter(tool => {
-      const matchCat = selectedCategory === 'All' || tool.category === selectedCategory;
-      const matchSearch = !searchQuery ||
-        tool.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        tool.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        tool.subcategory.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        tool.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()));
-      return matchCat && matchSearch;
-    });
-  }, [selectedCategory, searchQuery]);
+    let d = raw;
+    let u = raw;
+    let e = raw;
+    let i = raw;
 
-  // Interpolate query URL for active target
-  const resolveTargetUrl = (tool: OsintTool) => {
-    if (!activeTarget.trim()) return tool.directUrl;
-    const clean = activeTarget.trim();
-    const cleanDomain = clean.replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
-    const userSlug = clean.split('@')[0].replace(/[^a-zA-Z0-9_-]/g, '');
+    // Email detection
+    if (raw.includes('@')) {
+      e = raw;
+      const parts = raw.split('@');
+      u = parts[0] || 'targetuser';
+      d = parts[1] || 'example.com';
+    } else if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(raw)) {
+      // IP detection
+      i = raw;
+    } else if (raw.includes('.')) {
+      // Domain / host
+      d = raw.replace(/^https?:\/\//i, '').split('/')[0] || raw;
+      u = d.split('.')[0] || raw;
+    } else {
+      // Username or keyword
+      u = raw;
+      d = `${raw}.com`;
+      e = `${raw}@gmail.com`;
+    }
 
-    return tool.urlTemplate
-      .replace('{target}', encodeURIComponent(clean))
-      .replace('{domain}', encodeURIComponent(cleanDomain))
-      .replace('{username}', encodeURIComponent(userSlug))
-      .replace('{email}', encodeURIComponent(clean))
-      .replace('{ip}', encodeURIComponent(clean));
+    return {
+      domain: d,
+      username: u,
+      email: e,
+      ip: i,
+      cleanTarget: raw,
+    };
+  }, [activeTarget]);
+
+  // Compute live URLs and CLI commands with target interpolated
+  const resolveToolActions = (tool: OsintTool) => {
+    let resolvedUrl = tool.urlTemplate
+      .replace(/\{target\}/g, encodeURIComponent(cleanTarget))
+      .replace(/\{domain\}/g, encodeURIComponent(domain))
+      .replace(/\{username\}/g, encodeURIComponent(username))
+      .replace(/\{email\}/g, encodeURIComponent(email))
+      .replace(/\{ip\}/g, encodeURIComponent(ip));
+
+    let resolvedCli = tool.cliCommand
+      ? tool.cliCommand
+          .replace(/\{target\}/g, cleanTarget)
+          .replace(/\{domain\}/g, domain)
+          .replace(/\{username\}/g, username)
+          .replace(/\{email\}/g, email)
+          .replace(/\{ip\}/g, ip)
+      : undefined;
+
+    return { resolvedUrl, resolvedCli };
   };
 
-  const handleLaunchInvestigation = () => {
-    if (!activeTarget.trim()) return;
-    navigate(`/investigate?target=${encodeURIComponent(activeTarget.trim())}`);
-  };
-
-  const handleCopy = (id: string, text: string) => {
+  const handleCopyText = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleLaunchInvestigation = () => {
+    if (!activeTarget.trim()) return;
+    navigate(`/investigate?q=${encodeURIComponent(activeTarget.trim())}`);
+  };
+
+  // Filtered tools
+  const filteredTools = useMemo(() => {
+    return OSINT_TOOLS_REGISTRY.filter(tool => {
+      const matchesCategory = selectedCategory === 'All Tools' || tool.category === selectedCategory;
+      const query = searchQuery.toLowerCase().trim();
+      const matchesSearch = !query ||
+        tool.name.toLowerCase().includes(query) ||
+        tool.description.toLowerCase().includes(query) ||
+        tool.subcategory.toLowerCase().includes(query) ||
+        tool.category.toLowerCase().includes(query) ||
+        tool.tags.some(t => t.toLowerCase().includes(query)) ||
+        (tool.cliCommand && tool.cliCommand.toLowerCase().includes(query));
+
+      return matchesCategory && matchesSearch;
+    });
+  }, [selectedCategory, searchQuery]);
+
   return (
-    <div style={{ maxWidth: 1200, margin: '0 auto', padding: 'var(--space-6) var(--space-4)' }}>
-      {/* Header */}
+    <div style={{ maxWidth: 1400, margin: '0 auto', padding: 'var(--space-6) var(--space-6)' }}>
+      {/* Header Banner */}
       <div style={{ marginBottom: 'var(--space-8)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-2)' }}>
-          <div style={{
-            width: 40,
-            height: 40,
-            borderRadius: 'var(--radius)',
-            background: 'var(--color-accent-soft)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--color-accent)'
-          }}>
-            <Compass size={24} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <div style={{
+              width: 44,
+              height: 44,
+              borderRadius: 'var(--radius)',
+              background: 'var(--color-accent-soft)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--color-accent)'
+            }}>
+              <Compass size={28} />
+            </div>
+            <div>
+              <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 900, margin: 0, color: 'var(--color-dark)' }}>
+                OSINT Framework & Intelligence Hub
+              </h1>
+              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', margin: 0, marginTop: '2px' }}>
+                Unified directory of all 18 core OSINT framework domains, 110+ specialized reconnaissance tools, and live CLI command generator.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 800, margin: 0, color: 'var(--color-dark)' }}>
-              OSINT Framework & Intelligence Hub
-            </h1>
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', margin: 0 }}>
-              Curated open-source intelligence methods, direct reconnaissance pivots, and automated search techniques.
-            </p>
+
+          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            <button
+              onClick={() => setShowStarterGuide(!showStarterGuide)}
+              className={`btn btn-sm ${showStarterGuide ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}
+            >
+              <BookOpen size={15} /> {showStarterGuide ? 'Hide Starter Guide' : 'Starter Toolkit Workflow'}
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Target Pivot Launcher Bar */}
+      {/* Interactive Starter Toolkit Sequence (Collapsible) */}
+      {showStarterGuide && (
+        <div className="card" style={{
+          marginBottom: 'var(--space-8)',
+          padding: 'var(--space-6)',
+          background: 'linear-gradient(135deg, rgba(37,99,235,0.04), rgba(16,185,129,0.04))',
+          border: '1.5px solid var(--color-accent)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-3)' }}>
+            <Shield size={20} style={{ color: 'var(--color-accent)' }} />
+            <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 800, margin: 0, color: 'var(--color-dark)' }}>
+              Starter Toolkit for Cybersecurity OSINT — Practical Sequence
+            </h2>
+          </div>
+          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-5)' }}>
+            For authorized lab targets, bug bounties, and defense teams. Follow this structured 7-step sequence instead of running 100 tools at once:
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-3)' }}>
+            {STARTER_WORKFLOW_STEPS.map(step => (
+              <div
+                key={step.step}
+                style={{
+                  background: 'var(--color-surface)',
+                  padding: 'var(--space-4)',
+                  borderRadius: 'var(--radius)',
+                  border: '1px solid var(--color-border)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: 'var(--space-2)'
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-1)' }}>
+                    <span className="badge badge-primary" style={{ fontSize: '10px', fontWeight: 800 }}>
+                      Step {step.step}
+                    </span>
+                    <strong style={{ fontSize: 'var(--text-xs)', color: 'var(--color-dark)' }}>
+                      {step.title}
+                    </strong>
+                  </div>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-accent)', marginBottom: 'var(--space-1)' }}>
+                    {step.tools}
+                  </div>
+                  <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0, lineHeight: 1.4 }}>
+                    {step.purpose}
+                  </p>
+                </div>
+
+                <div style={{
+                  background: 'var(--color-bg)',
+                  padding: '4px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '10px',
+                  color: 'var(--color-text-primary)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <code style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {step.cli.replace('{domain}', domain).replace('{target}', cleanTarget).replace('{ip}', ip).replace('{username}', username)}
+                  </code>
+                  <button
+                    onClick={() => handleCopyText(step.cli.replace('{domain}', domain).replace('{target}', cleanTarget).replace('{ip}', ip).replace('{username}', username), `step-${step.step}`)}
+                    className="btn btn-ghost btn-xs"
+                    style={{ padding: '2px 4px', height: 'auto', marginLeft: '4px' }}
+                    title="Copy command"
+                  >
+                    {copiedId === `step-${step.step}` ? <Check size={10} style={{ color: 'var(--color-success)' }} /> : <Copy size={10} />}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Active Target Pivot Engine */}
       <div className="card" style={{
-        marginBottom: 'var(--space-8)',
+        marginBottom: 'var(--space-6)',
         padding: 'var(--space-5)',
         background: 'var(--color-surface-elevated)',
         border: '1.5px solid var(--color-accent-soft)'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-3)' }}>
-          <Sparkles size={16} style={{ color: 'var(--color-accent)' }} />
-          <strong style={{ fontSize: 'var(--text-sm)', color: 'var(--color-dark)' }}>
+          <Sparkles size={18} style={{ color: 'var(--color-accent)' }} />
+          <strong style={{ fontSize: 'var(--text-base)', color: 'var(--color-dark)' }}>
             Active Target Pivot Engine
           </strong>
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
-            Enter any target to dynamically populate pre-configured queries across all tools below
+            Enter any target to dynamically populate pre-configured live query links and CLI commands across all 110+ tools below
           </span>
         </div>
 
         <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 260, position: 'relative' }}>
+          <div style={{ flex: 1, minWidth: 280 }}>
             <input
               type="text"
               className="input"
-              placeholder="e.g. example.com, analyst@company.org, torvalds, 1.1.1.1, +14155552671"
+              placeholder="e.g. example.com, torvalds, analyst@target.org, 1.1.1.1, +14155552671"
               value={activeTarget}
               onChange={(e) => setActiveTarget(e.target.value)}
-              style={{ width: '100%', paddingLeft: 'var(--space-4)' }}
+              style={{ width: '100%', fontSize: 'var(--text-sm)' }}
             />
           </div>
 
@@ -492,118 +2751,210 @@ export default function OsintFrameworkPage() {
         </div>
 
         {activeTarget.trim() && (
-          <div style={{ marginTop: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 'var(--text-xs)' }}>
-            <span style={{ color: 'var(--color-text-secondary)' }}>Active pivot target:</span>
-            <span className="badge badge-info" style={{ fontFamily: 'var(--font-mono)' }}>
-              {activeTarget}
-            </span>
-            <span style={{ color: 'var(--color-text-muted)' }}>
-              All 28 tools below have live query links ready to launch.
+          <div style={{ marginTop: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', fontSize: 'var(--text-xs)' }}>
+            <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>Active Target Variables:</span>
+            <span className="badge badge-info" style={{ fontFamily: 'var(--font-mono)' }}>Domain: {domain}</span>
+            <span className="badge badge-info" style={{ fontFamily: 'var(--font-mono)' }}>Username: {username}</span>
+            <span className="badge badge-info" style={{ fontFamily: 'var(--font-mono)' }}>Email: {email}</span>
+            <span className="badge badge-info" style={{ fontFamily: 'var(--font-mono)' }}>IP: {ip}</span>
+            <span style={{ color: 'var(--color-text-muted)', marginLeft: 'auto' }}>
+              All 110+ tools below dynamically updated!
             </span>
           </div>
         )}
       </div>
 
-      {/* Search and Category Filters */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
-        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-          {categories.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`btn btn-sm ${selectedCategory === cat ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ fontSize: 'var(--text-xs)' }}
-            >
-              {cat}
-            </button>
-          ))}
+      {/* Filter Toolbar & Category Navigation */}
+      <div style={{ marginBottom: 'var(--space-6)' }}>
+        {/* Search bar & count */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <Layers size={16} style={{ color: 'var(--color-accent)' }} />
+            <span style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--color-dark)' }}>
+              Showing {filteredTools.length} of {OSINT_TOOLS_REGISTRY.length} tools
+            </span>
+          </div>
+
+          <div style={{ width: 320, maxWidth: '100%' }}>
+            <input
+              type="text"
+              className="input input-sm"
+              placeholder="Search tools, tags, or CLI commands..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ width: '100%' }}
+            />
+          </div>
         </div>
 
-        <div style={{ position: 'relative', width: 220 }}>
-          <Search size={14} style={{ position: 'absolute', left: 10, top: 11, color: 'var(--color-text-muted)' }} />
-          <input
-            type="text"
-            className="input input-sm"
-            placeholder="Search OSINT tools..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ width: '100%', paddingLeft: 30 }}
-          />
+        {/* Category Pills (All 18 Categories) */}
+        <div style={{
+          display: 'flex',
+          gap: 'var(--space-2)',
+          flexWrap: 'wrap',
+          background: 'var(--color-surface)',
+          padding: 'var(--space-3)',
+          borderRadius: 'var(--radius)',
+          border: '1px solid var(--color-border)'
+        }}>
+          {OSINT_CATEGORIES.map(cat => {
+            const count = cat === 'All Tools'
+              ? OSINT_TOOLS_REGISTRY.length
+              : OSINT_TOOLS_REGISTRY.filter(t => t.category === cat).length;
+
+            return (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`btn btn-xs ${selectedCategory === cat ? 'btn-primary' : 'btn-ghost'}`}
+                style={{
+                  fontSize: '11px',
+                  padding: '3px 10px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontWeight: selectedCategory === cat ? 700 : 500
+                }}
+              >
+                {cat} ({count})
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Tools Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 'var(--space-5)' }}>
+      {/* Tools Grid (All 110+ Tools) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 'var(--space-4)' }}>
         {filteredTools.map(tool => {
-          const resolvedUrl = resolveTargetUrl(tool);
-          const hasActiveQuery = activeTarget.trim().length > 0;
+          const { resolvedUrl, resolvedCli } = resolveToolActions(tool);
 
           return (
-            <div key={tool.id} className="card" style={{
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-              padding: 'var(--space-5)',
-              transition: 'transform 0.15s ease, border-color 0.15s ease',
-            }}>
+            <div
+              key={tool.id}
+              className="card"
+              style={{
+                padding: 'var(--space-5)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                gap: 'var(--space-4)',
+                border: '1px solid var(--color-border)',
+                background: 'var(--color-surface)',
+                transition: 'all 0.2s ease',
+              }}
+            >
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-2)' }}>
+                {/* Header row */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
                   <div>
-                    <span className="badge badge-neutral" style={{ fontSize: '10px', textTransform: 'uppercase', marginBottom: 4 }}>
-                      {tool.subcategory}
-                    </span>
-                    <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 700, margin: 0, color: 'var(--color-dark)' }}>
+                    <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 800, margin: 0, color: 'var(--color-dark)' }}>
                       {tool.name}
                     </h3>
+                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                      {tool.subcategory} • <span style={{ color: 'var(--color-accent)' }}>{tool.category}</span>
+                    </div>
                   </div>
 
-                  <span className="badge badge-success" style={{ fontSize: '10px' }}>
-                    Free / Open
-                  </span>
+                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {tool.cliCommand && (
+                      <span className="badge badge-neutral" style={{ fontSize: '9px', padding: '1px 5px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                        <Terminal size={9} /> CLI
+                      </span>
+                    )}
+                    {tool.freeTier && (
+                      <span className="badge badge-success" style={{ fontSize: '9px', padding: '1px 5px' }}>
+                        Free
+                      </span>
+                    )}
+                    {tool.requiresApiKey && (
+                      <span className="badge badge-warning" style={{ fontSize: '9px', padding: '1px 5px' }}>
+                        API Key
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 'var(--space-4)' }}>
+                {/* Description */}
+                <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.5, margin: 0, marginBottom: 'var(--space-3)' }}>
                   {tool.description}
                 </p>
 
-                {/* Tags */}
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: 'var(--space-4)' }}>
-                  {tool.tags.map(t => (
-                    <span key={t} style={{
-                      fontSize: '10px',
-                      padding: '2px 6px',
-                      borderRadius: 4,
-                      background: 'var(--color-bg)',
-                      border: '1px solid var(--color-border)',
-                      color: 'var(--color-text-muted)'
-                    }}>
-                      #{t}
-                    </span>
-                  ))}
-                </div>
+                {/* Best for highlight */}
+                {tool.bestFor && (
+                  <div style={{
+                    fontSize: '11px',
+                    color: '#059669',
+                    background: '#ecfdf5',
+                    padding: '4px 8px',
+                    borderRadius: 'var(--radius-sm)',
+                    marginBottom: 'var(--space-3)',
+                    border: '1px solid #d1fae5',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    <CheckCircle2 size={12} style={{ flexShrink: 0 }} />
+                    <span><strong>Best for:</strong> {tool.bestFor}</span>
+                  </div>
+                )}
+
+                {/* CLI Command snippet (if available) */}
+                {resolvedCli && (
+                  <div style={{
+                    background: 'var(--color-bg)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius)',
+                    padding: 'var(--space-2) var(--space-3)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '11px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 'var(--space-2)'
+                  }}>
+                    <code style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-dark)' }}>
+                      $ {resolvedCli}
+                    </code>
+                    <button
+                      onClick={() => handleCopyText(resolvedCli, `cli-${tool.id}`)}
+                      className="btn btn-ghost btn-xs"
+                      style={{ padding: '2px 4px', height: 'auto', marginLeft: '6px' }}
+                      title="Copy CLI command"
+                    >
+                      {copiedId === `cli-${tool.id}` ? <Check size={12} style={{ color: 'var(--color-success)' }} /> : <Copy size={12} />}
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: 'var(--space-2)', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border)' }}>
+              {/* Action buttons */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingTop: 'var(--space-3)',
+                borderTop: '1px solid var(--color-border-subtle)',
+                flexWrap: 'wrap',
+                gap: 'var(--space-2)'
+              }}>
+                <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+                  <button
+                    onClick={() => handleCopyText(resolvedUrl, `url-${tool.id}`)}
+                    className="btn btn-ghost btn-xs"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}
+                  >
+                    {copiedId === `url-${tool.id}` ? <Check size={12} /> : <Copy size={12} />}
+                    {copiedId === `url-${tool.id}` ? 'Copied' : 'Copy Query'}
+                  </button>
+                </div>
+
                 <a
                   href={resolvedUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className={`btn btn-sm ${hasActiveQuery ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ flex: 1, textDecoration: 'none', justifyContent: 'center' }}
+                  className="btn btn-primary btn-xs"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}
                 >
-                  <span>{hasActiveQuery ? 'Query Target' : 'Open Tool'}</span>
-                  <ExternalLink size={13} />
+                  <ExternalLink size={12} /> Launch Web Tool
                 </a>
-
-                <button
-                  onClick={() => handleCopy(tool.id, resolvedUrl)}
-                  className="btn btn-ghost btn-sm"
-                  title="Copy direct URL"
-                  style={{ padding: '0 var(--space-3)' }}
-                >
-                  {copiedId === tool.id ? <Check size={14} style={{ color: 'var(--color-success)' }} /> : <Copy size={14} />}
-                </button>
               </div>
             </div>
           );
@@ -611,8 +2962,17 @@ export default function OsintFrameworkPage() {
       </div>
 
       {filteredTools.length === 0 && (
-        <div className="card" style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-          No OSINT Framework tools matched your search criteria.
+        <div className="card" style={{ padding: 'var(--space-12)', textAlign: 'center', marginTop: 'var(--space-6)' }}>
+          <Search size={36} style={{ color: 'var(--color-text-muted)', marginBottom: 'var(--space-3)' }} />
+          <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: 'var(--color-dark)', marginBottom: 'var(--space-2)' }}>
+            No tools matched your search criteria
+          </h3>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-4)' }}>
+            Try searching for a different keyword or select "All Tools" above.
+          </p>
+          <button onClick={() => { setSelectedCategory('All Tools'); setSearchQuery(''); }} className="btn btn-secondary btn-sm">
+            Reset Filters
+          </button>
         </div>
       )}
     </div>

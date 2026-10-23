@@ -2031,35 +2031,44 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (shouldRun('cloud_storage')) runners.push(() => runCloudStorageCollector(ctx, normalizedTarget));
         if (shouldRun('threat_intel')) runners.push(() => runThreatIntelCollector(ctx, normalizedTarget));
         if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'domain'));
+        if (shouldRun('email_identity')) runners.push(() => runEmailIdentityCollector(ctx, `security@${normalizedTarget}`));
+        if (shouldRun('pgp_keys')) runners.push(() => runPgpKeysCollector(ctx, normalizedTarget));
+        if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
         break;
       }
 
       case 'email': {
         const domain = domainFromEmail(normalizedTarget);
-        const isConsumer = [
-          'gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'hotmail.com',
-          'outlook.com', 'live.com', 'msn.com', 'icloud.com', 'proton.me',
-          'protonmail.com', 'zoho.com', 'aol.com', 'mail.com', 'gmx.com'
-        ].includes(domain.toLowerCase());
+        const usernamePart = normalizedTarget.split('@')[0] || '';
 
-        // Always run deep email & identity intelligence (git commit history, verified author names, Gravatar, handle footprint)
+        // 1. Email identity & Git author attribution
         if (shouldRun('email_identity')) runners.push(() => runEmailIdentityCollector(ctx, normalizedTarget));
         if (shouldRun('breach')) runners.push(() => runBreachCollector(ctx, normalizedTarget, 'email'));
         if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, []));
         if (shouldRun('pgp_keys')) runners.push(() => runPgpKeysCollector(ctx, normalizedTarget));
         if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'email'));
 
-        // For corporate/custom domains, also run infrastructure DNS/RDAP/CT/WebArchive/Security Hygiene
-        if (!isConsumer) {
-          if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, domain));
-          if (shouldRun('dns_security')) runners.push(() => runDnsSecurityCollector(ctx, domain));
-          if (shouldRun('shodan')) runners.push(() => runShodanCollector(ctx, domain, true));
-          if (shouldRun('rdap')) runners.push(() => runRdapCollector(ctx, domain, 'domain'));
-          if (shouldRun('certificate_transparency')) runners.push(() => runCertificateCollector(ctx, domain));
-          if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, domain));
-          if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, domain));
-          if (shouldRun('threat_intel')) runners.push(() => runThreatIntelCollector(ctx, domain));
+        // 2. Handle & Profile Footprint (Sherlock, WhatsMyName, GitHub, Public Person Records)
+        if (usernamePart && shouldRun('username_presence')) {
+          runners.push(() => runUsernamePresenceCollector(ctx, usernamePart));
         }
+        if (usernamePart && shouldRun('github')) {
+          runners.push(() => runGitHubCollector(ctx, usernamePart, true));
+        }
+        if (usernamePart && shouldRun('person_search')) {
+          runners.push(() => runPersonSearchCollector(ctx, usernamePart));
+        }
+
+        // 3. Mail Exchange, DNS Zone, SPF/DMARC Security & Threat Intelligence
+        if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, domain));
+        if (shouldRun('dns_security')) runners.push(() => runDnsSecurityCollector(ctx, domain));
+        if (shouldRun('rdap')) runners.push(() => runRdapCollector(ctx, domain, 'domain'));
+        if (shouldRun('certificate_transparency')) runners.push(() => runCertificateCollector(ctx, domain));
+        if (shouldRun('threat_intel')) runners.push(() => runThreatIntelCollector(ctx, domain));
+        if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, domain));
+        if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, domain));
+        if (shouldRun('cloud_storage')) runners.push(() => runCloudStorageCollector(ctx, domain));
+        if (shouldRun('shodan')) runners.push(() => runShodanCollector(ctx, domain, true));
         break;
       }
 
@@ -2071,6 +2080,8 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (shouldRun('threat_intel')) runners.push(() => runThreatIntelCollector(ctx, normalizedTarget));
         if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'ip'));
         if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
+        if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, `${normalizedTarget}.in-addr.arpa`));
+        if (shouldRun('dns_security')) runners.push(() => runDnsSecurityCollector(ctx, normalizedTarget));
         break;
       }
 
@@ -2081,12 +2092,15 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
           if (shouldRun('url_metadata')) runners.push(() => runUrlMetadataCollector(ctx, normalizedTarget));
           if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, domain));
           if (shouldRun('dns_security')) runners.push(() => runDnsSecurityCollector(ctx, domain));
+          if (shouldRun('rdap')) runners.push(() => runRdapCollector(ctx, domain, 'domain'));
+          if (shouldRun('certificate_transparency')) runners.push(() => runCertificateCollector(ctx, domain));
           if (shouldRun('virustotal')) runners.push(() => runVtCollector(ctx, normalizedTarget, 'url'));
           if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, domain));
           if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, normalizedTarget));
           if (shouldRun('threat_intel')) runners.push(() => runThreatIntelCollector(ctx, domain));
           if (shouldRun('cloud_storage')) runners.push(() => runCloudStorageCollector(ctx, domain));
           if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'url'));
+          if (shouldRun('shodan')) runners.push(() => runShodanCollector(ctx, domain, true));
         } catch {
           // Invalid URL — skip
         }
@@ -2096,18 +2110,22 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
       case 'username': {
         if (shouldRun('github')) runners.push(() => runGitHubCollector(ctx, normalizedTarget, true));
         if (shouldRun('username_presence')) runners.push(() => runUsernamePresenceCollector(ctx, normalizedTarget));
+        if (shouldRun('person_search')) runners.push(() => runPersonSearchCollector(ctx, normalizedTarget));
         if (shouldRun('breach')) runners.push(() => runBreachCollector(ctx, normalizedTarget, 'username'));
         if (shouldRun('pgp_keys')) runners.push(() => runPgpKeysCollector(ctx, normalizedTarget));
         if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'username'));
+        if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
+        if (shouldRun('threat_intel')) runners.push(() => runThreatIntelCollector(ctx, normalizedTarget));
+        if (shouldRun('cloud_storage')) runners.push(() => runCloudStorageCollector(ctx, normalizedTarget));
         if (detectCryptoNetwork(normalizedTarget) !== 'unknown' && shouldRun('crypto')) {
           runners.push(() => runCryptoCollector(ctx, normalizedTarget));
         }
-        if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
         break;
       }
 
       case 'crypto_wallet': {
         if (shouldRun('crypto')) runners.push(() => runCryptoCollector(ctx, normalizedTarget));
+        if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'crypto_wallet'));
         break;
       }
 
@@ -2118,6 +2136,8 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, candidateDomain));
         if (shouldRun('dns_security')) runners.push(() => runDnsSecurityCollector(ctx, candidateDomain));
         if (shouldRun('shodan')) runners.push(() => runShodanCollector(ctx, candidateDomain, true));
+        if (shouldRun('rdap')) runners.push(() => runRdapCollector(ctx, candidateDomain, 'domain'));
+        if (shouldRun('certificate_transparency')) runners.push(() => runCertificateCollector(ctx, candidateDomain));
         if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, candidateDomain));
         if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, candidateDomain));
         if (shouldRun('cloud_storage')) runners.push(() => runCloudStorageCollector(ctx, candidateDomain));
@@ -2134,15 +2154,24 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (candidateSlug && candidateSlug.length >= 3 && candidateSlug.length <= 30 && shouldRun('username_presence')) {
           runners.push(() => runUsernamePresenceCollector(ctx, candidateSlug));
         }
+        if (candidateSlug && shouldRun('github')) {
+          runners.push(() => runGitHubCollector(ctx, candidateSlug, true));
+        }
         if (shouldRun('pgp_keys')) runners.push(() => runPgpKeysCollector(ctx, normalizedTarget));
         if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'person'));
+        if (shouldRun('breach')) runners.push(() => runBreachCollector(ctx, candidateSlug || normalizedTarget, 'username'));
         if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
+        if (candidateSlug && shouldRun('cloud_storage')) {
+          runners.push(() => runCloudStorageCollector(ctx, candidateSlug));
+        }
+        if (shouldRun('threat_intel')) runners.push(() => runThreatIntelCollector(ctx, normalizedTarget));
         break;
       }
 
       case 'phone': {
         if (shouldRun('phone')) runners.push(() => runPhoneCollector(ctx, normalizedTarget));
         if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'phone'));
+        if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
         break;
       }
     }

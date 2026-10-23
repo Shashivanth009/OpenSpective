@@ -28,6 +28,7 @@ const MODULES_CONFIG = [
   { id: 'crypto', name: 'Blockchain & Crypto Forensics', desc: 'Analyzes Bitcoin, Ethereum, Solana, and TRON wallet balances, activity, and transactions', types: ['crypto_wallet', 'person', 'username'] },
   { id: 'virustotal', name: 'VirusTotal Threat Intel', desc: 'Reputation analysis across 70+ threat intelligence engines (requires key)', types: ['domain', 'ip', 'url', 'email'] },
   { id: 'person_search', name: 'Public Person & Entity Search', desc: 'GitHub full name matches, Wikipedia articles, Wikidata knowledge graph, HackerNews mentions', types: ['person'] },
+  { id: 'osint_framework', name: 'OSINT Framework 110+ Toolkit Suite', desc: 'Executes cross-engine public intelligence pivots, PGP keys, S3 cloud enumeration, Abuse.ch, and public records', types: ['domain', 'ip', 'email', 'username', 'url', 'organization', 'person', 'phone'] },
 ];
 
 export default function InvestigatePage() {
@@ -43,7 +44,7 @@ export default function InvestigatePage() {
     const all = [
       'certificate_transparency', 'username_presence', 'email_identity', 'tech_stack',
       'web_archive', 'shodan', 'dns_security', 'threat_intel', 'cloud_storage',
-      'search_dorks', 'pgp_keys', 'dns', 'rdap', 'ipinfo', 'github', 'breach', 'location', 'phone', 'crypto', 'person_search'
+      'search_dorks', 'pgp_keys', 'dns', 'rdap', 'ipinfo', 'github', 'breach', 'location', 'phone', 'crypto', 'person_search', 'osint_framework'
     ];
     if (initialModule && all.includes(initialModule)) {
       return all;

@@ -4,7 +4,8 @@ import {
   AlertTriangle, GitBranch, RefreshCw, Sparkles,
   FileText, ChevronDown, ChevronRight, Clock,
   ShieldCheck, BarChart3, CornerUpRight, ExternalLink,
-  Copy, Check, Database, MapPin, Compass, Search
+  Copy, Check, Database, MapPin, Compass, Search,
+  FileSpreadsheet, FileCode
 } from 'lucide-react';
 import * as api from '../api.ts';
 
@@ -24,6 +25,8 @@ export default function InvestigationDetailPage() {
   const [selectedCollector, setSelectedCollector] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [exportToast, setExportToast] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const COLLECTOR_OSINT_META: Record<string, { label: string; suite: string; icon: string }> = {
@@ -124,91 +127,312 @@ export default function InvestigationDetailPage() {
     }
   };
 
-  const handleExport = async (format: 'json' | 'csv' | 'html') => {
-    if (!id) return;
-    try {
-      const res = await api.generateReport(id, format);
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `openspective-report-${investigation?.target || id}.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch (err: any) {
-      alert(err?.message || 'Export failed.');
-    }
-  };
-
-  // Client-side OASIS STIX 2.1 Threat Intel Bundle generator
-  const handleExportStix = () => {
-    if (!investigation) return;
-    const now = new Date().toISOString();
-    const bundleId = `bundle--${Math.random().toString(36).slice(2, 11)}-${Date.now()}`;
-    const identityId = `identity--${Math.random().toString(36).slice(2, 11)}`;
-
-    const stixObjects: any[] = [
-      {
-        type: 'identity',
-        spec_version: '2.1',
-        id: identityId,
-        created: now,
-        modified: now,
-        name: 'OpenSpective Passive OSINT Platform',
-        identity_class: 'system',
-      },
-      {
-        type: 'observed-data',
-        spec_version: '2.1',
-        id: `observed-data--${Math.random().toString(36).slice(2, 11)}`,
-        created_by_ref: identityId,
-        created: now,
-        modified: now,
-        first_observed: investigation.started_at,
-        last_observed: investigation.completed_at || now,
-        number_observed: findings.length,
-        objects: {
-          '0': {
-            type: investigation.target_type === 'ip' ? 'ipv4-addr' : investigation.target_type === 'email' ? 'email-addr' : 'domain-name',
-            value: investigation.target,
-          },
-        },
-      },
-    ];
-
-    findings.forEach((f) => {
-      stixObjects.push({
-        type: 'indicator',
-        spec_version: '2.1',
-        id: `indicator--${Math.random().toString(36).slice(2, 11)}`,
-        created_by_ref: identityId,
-        created: f.first_seen || now,
-        modified: f.first_seen || now,
-        name: `${f.category}: ${f.type}`,
-        description: f.notes || f.value,
-        indicator_types: [f.severity === 'critical' || f.severity === 'high' ? 'malicious-activity' : 'anomalous-activity'],
-        pattern_type: 'stix',
-        pattern: `[artifact:payload_bin = '${f.value}']`,
-        valid_from: f.first_seen || now,
-        confidence: f.confidence === 'high' ? 90 : f.confidence === 'medium' ? 60 : 30,
-      });
-    });
-
-    const bundle = {
-      type: 'bundle',
-      id: bundleId,
-      objects: stixObjects,
-    };
-
-    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+  const triggerDownload = (blob: Blob, filename: string) => {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `stix2.1-${investigation.target}-${investigation.id}.json`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
-    a.remove();
+    setTimeout(() => {
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    }, 250);
+  };
+
+  const handleExport = (format: 'json' | 'csv' | 'stix' | 'html') => {
+    if (!investigation) return;
+    setIsExporting(format);
+
+    try {
+      const targetSlug = (investigation.target || 'target').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `openspective-${targetSlug}-${investigation.id.slice(0, 8)}.${format === 'stix' ? 'stix21.json' : format}`;
+
+      if (format === 'json') {
+        const reportData = {
+          meta: {
+            title: 'OpenSpective Passive OSINT Platform Report',
+            target: investigation.target,
+            targetType: investigation.target_type,
+            status: investigation.status,
+            startedAt: investigation.started_at,
+            completedAt: investigation.completed_at,
+            findingsCount: findings.length,
+            collectorsCount: executions.length,
+            generatedAt: new Date().toISOString(),
+            methodology: 'Passive multi-engine intelligence collection across public DNS, RDAP, certificate transparency, threat IOCs, developer registries, and search dorks.',
+          },
+          investigation,
+          collectors: executions,
+          findings,
+          aiAnalysis: aiReport || null,
+        };
+        const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
+        triggerDownload(blob, filename);
+      } else if (format === 'csv') {
+        const headers = ['id', 'category', 'subcategory', 'type', 'value', 'confidence', 'severity', 'source_name', 'source_url', 'first_seen', 'notes'];
+        const escapeCsv = (val: any) => {
+          const s = String(val ?? '');
+          return s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')
+            ? `"${s.replace(/"/g, '""')}"`
+            : s;
+        };
+        const rows = findings.map(f => [
+          escapeCsv(f.id),
+          escapeCsv(f.category),
+          escapeCsv(f.subcategory),
+          escapeCsv(f.type),
+          escapeCsv(f.value),
+          escapeCsv(f.confidence),
+          escapeCsv(f.severity),
+          escapeCsv(f.source_name),
+          escapeCsv(f.source_url),
+          escapeCsv(f.first_seen),
+          escapeCsv(f.notes)
+        ].join(','));
+        const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        triggerDownload(blob, filename);
+      } else if (format === 'stix') {
+        const now = new Date().toISOString();
+        const bundleId = `bundle--${Math.random().toString(36).slice(2, 11)}-${Date.now()}`;
+        const identityId = `identity--${Math.random().toString(36).slice(2, 11)}`;
+
+        const stixObjects: any[] = [
+          {
+            type: 'identity',
+            spec_version: '2.1',
+            id: identityId,
+            created: now,
+            modified: now,
+            name: 'OpenSpective Passive OSINT Platform',
+            identity_class: 'system',
+          },
+          {
+            type: 'observed-data',
+            spec_version: '2.1',
+            id: `observed-data--${Math.random().toString(36).slice(2, 11)}`,
+            created_by_ref: identityId,
+            created: now,
+            modified: now,
+            first_observed: investigation.started_at,
+            last_observed: investigation.completed_at || now,
+            number_observed: findings.length,
+            objects: {
+              '0': {
+                type: investigation.target_type === 'ip' ? 'ipv4-addr' : investigation.target_type === 'email' ? 'email-addr' : 'domain-name',
+                value: investigation.target,
+              },
+            },
+          },
+        ];
+
+        findings.forEach((f) => {
+          stixObjects.push({
+            type: 'indicator',
+            spec_version: '2.1',
+            id: `indicator--${Math.random().toString(36).slice(2, 11)}`,
+            created_by_ref: identityId,
+            created: f.first_seen || now,
+            modified: f.first_seen || now,
+            name: `${f.category}: ${f.type}`,
+            description: f.notes || f.value,
+            indicator_types: [f.severity === 'critical' || f.severity === 'high' ? 'malicious-activity' : 'anomalous-activity'],
+            pattern_type: 'stix',
+            pattern: `[artifact:payload_bin = '${f.value}']`,
+            valid_from: f.first_seen || now,
+            confidence: f.confidence === 'high' ? 90 : f.confidence === 'medium' ? 60 : 30,
+          });
+        });
+
+        const bundle = {
+          type: 'bundle',
+          id: bundleId,
+          objects: stixObjects,
+        };
+        const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+        triggerDownload(blob, filename);
+      } else if (format === 'html') {
+        const escapeHtml = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        
+        const findingsRows = findings.map(f => `
+          <tr>
+            <td><span class="badge badge-${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
+            <td><strong>${escapeHtml(f.category)}</strong><div class="sub">${escapeHtml(f.type)}</div></td>
+            <td class="code-val">${escapeHtml(f.value)}</td>
+            <td><span class="conf conf-${escapeHtml(f.confidence)}">${escapeHtml(f.confidence)}</span></td>
+            <td>${escapeHtml(f.source_name || 'OpenSpective')}</td>
+            <td class="notes">${escapeHtml(f.notes || '—')}</td>
+          </tr>
+        `).join('');
+
+        const collectorsRows = executions.map(e => `
+          <tr>
+            <td><strong>${escapeHtml(e.collector_name)}</strong></td>
+            <td><span class="status status-${escapeHtml(e.status)}">${escapeHtml(e.status)}</span></td>
+            <td>${e.findings_count} findings</td>
+            <td>${e.completed_at ? new Date(e.completed_at).toLocaleTimeString() : 'In progress'}</td>
+            <td class="sub">${escapeHtml(e.error_message || 'Clean execution')}</td>
+          </tr>
+        `).join('');
+
+        const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenSpective Intelligence Dossier — ${escapeHtml(investigation.target)}</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --border: #334155;
+    --text: #f8fafc;
+    --text-muted: #94a3b8;
+    --accent: #10b981;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); padding: 2.5rem; line-height: 1.5; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 2rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-icon { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #10b981, #3b82f6); display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; color: white; }
+  .title { font-size: 1.75rem; font-weight: 800; }
+  .subtitle { color: var(--text-muted); font-size: 0.9rem; }
+  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+  .metric-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; }
+  .metric-label { font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; }
+  .metric-value { font-size: 1.85rem; font-weight: 800; color: var(--text); }
+  .section-title { font-size: 1.25rem; font-weight: 700; margin: 2rem 0 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+  table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 12px; overflow: hidden; border: 1px solid var(--border); margin-bottom: 2rem; font-size: 0.875rem; }
+  th { background: #162032; text-align: left; padding: 12px 16px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.75rem; }
+  td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+  .badge-critical { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+  .badge-high { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); }
+  .badge-medium { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3); }
+  .badge-low { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+  .badge-info, .badge-none { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.2); }
+  .status { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }
+  .status-completed { color: #34d399; }
+  .status-running { color: #60a5fa; }
+  .status-failed { color: #f87171; }
+  .code-val { font-family: ui-monospace, SFMono-Regular, monospace; word-break: break-all; color: #38bdf8; }
+  .sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+  .notes { color: var(--text-muted); font-size: 0.8rem; }
+  .conf { font-weight: 600; font-size: 0.8rem; text-transform: capitalize; }
+  .conf-high { color: #34d399; }
+  .conf-medium { color: #facc15; }
+  .conf-low { color: #94a3b8; }
+  .ai-box { background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; line-height: 1.6; }
+  .footer { text-align: center; color: var(--text-muted); font-size: 0.8rem; margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
+  @media print {
+    body { background: white; color: black; padding: 1rem; }
+    .metric-card, table, .ai-box { background: white; border: 1px solid #ccc; color: black; }
+    th { background: #f1f5f9; color: black; }
+    td { border-bottom: 1px solid #eee; }
+    .code-val { color: black; }
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div>
+        <div class="title">OpenSpective OSINT Dossier</div>
+        <div class="subtitle">Comprehensive Multi-Engine Intelligence & Attack Surface Analysis</div>
+      </div>
+    </div>
+    <div style="text-align: right;">
+      <div style="font-size: 0.8rem; color: var(--text-muted);">Generated: ${new Date().toLocaleString()}</div>
+      <div style="font-size: 0.85rem; font-weight: 700; color: var(--accent); margin-top: 4px;">Classification: Open Intelligence</div>
+    </div>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-label">Target Entity</div>
+      <div class="metric-value" style="font-size: 1.25rem; word-break: break-all;">${escapeHtml(investigation.target)}</div>
+      <div class="sub" style="text-transform: capitalize;">${escapeHtml(investigation.target_type)} Target</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Status</div>
+      <div class="metric-value" style="color: ${investigation.status === 'completed' ? '#34d399' : '#60a5fa'}; text-transform: uppercase; font-size: 1.5rem;">${escapeHtml(investigation.status)}</div>
+      <div class="sub">${executions.length} Collectors Dispatched</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Discovered Findings</div>
+      <div class="metric-value" style="color: #38bdf8;">${findings.length}</div>
+      <div class="sub">${findings.filter(f => f.confidence === 'high').length} High Confidence</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Critical / High Alerts</div>
+      <div class="metric-value" style="color: ${findings.filter(f => f.severity === 'critical' || f.severity === 'high').length > 0 ? '#f87171' : '#34d399'};">
+        ${findings.filter(f => f.severity === 'critical' || f.severity === 'high').length}
+      </div>
+      <div class="sub">Immediate attention items</div>
+    </div>
+  </div>
+
+  ${aiReport?.summary ? `
+    <div class="section-title">🤖 AI Executive Synthesis</div>
+    <div class="ai-box">
+      <strong>Executive Summary:</strong>
+      <p style="margin-top: 8px;">${escapeHtml(aiReport.summary)}</p>
+      ${aiReport.recommendations ? `<div style="margin-top: 12px;"><strong>Key Recommendations:</strong><p style="margin-top: 4px;">${escapeHtml(aiReport.recommendations)}</p></div>` : ''}
+    </div>
+  ` : ''}
+
+  <div class="section-title">📊 Intelligence Findings (${findings.length})</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Severity</th>
+        <th>Category & Type</th>
+        <th>Discovered Value</th>
+        <th>Confidence</th>
+        <th>Source</th>
+        <th>Notes / Context</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${findingsRows || '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No findings recorded.</td></tr>'}
+    </tbody>
+  </table>
+
+  <div class="section-title">⚙️ OSINT Engines & Execution Telemetry (${executions.length})</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Engine / Collector</th>
+        <th>Status</th>
+        <th>Findings</th>
+        <th>Execution Timestamp</th>
+        <th>Diagnostic Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${collectorsRows || '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No collector records.</td></tr>'}
+    </tbody>
+  </table>
+
+  <div class="footer">
+    OpenSpective Intelligence Platform — Passive OSINT Reconnaissance Framework — Strictly For Authorized Security Research.
+  </div>
+</body>
+</html>`;
+        const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8;' });
+        triggerDownload(blob, filename);
+      }
+
+      setExportToast(`Exported ${format.toUpperCase()} report successfully!`);
+      setTimeout(() => setExportToast(null), 3500);
+    } catch (err: any) {
+      alert(`Export error: ${err?.message || 'Failed to generate report.'}`);
+    } finally {
+      setIsExporting(null);
+    }
   };
 
   const handleCopyRaw = (text: string, fid: string) => {
@@ -467,16 +691,21 @@ export default function InvestigationDetailPage() {
   }
 
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto', padding: 'var(--space-6) var(--space-8)' }}>
+    <div className="ambient-bg-wrapper" style={{ maxWidth: '1400px', margin: '0 auto', padding: 'var(--space-6) var(--space-8)', position: 'relative' }}>
+      {/* Ambient Blurry Floating Glow Orbs */}
+      <div className="ambient-orb ambient-orb-primary" style={{ top: '-100px', right: '5%' }} />
+      <div className="ambient-orb ambient-orb-blue" style={{ top: '250px', left: '-80px' }} />
+      <div className="ambient-orb ambient-orb-purple" style={{ bottom: '150px', right: '-60px' }} />
+
       {/* Target Banner */}
-      <div className="card" style={{ marginBottom: 'var(--space-6)', padding: 'var(--space-6)' }}>
+      <div className="glass-panel" style={{ marginBottom: 'var(--space-6)', padding: 'var(--space-6)', position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-2)' }}>
               <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 800, color: 'var(--color-dark)', margin: 0 }}>
                 {investigation.target}
               </h1>
-              <span className="badge badge-neutral" style={{ textTransform: 'capitalize' }}>
+              <span className="glass-pill" style={{ textTransform: 'capitalize' }}>
                 {investigation.target_type.replace('_', ' ')}
               </span>
               {getStatusBadge(investigation.status)}
@@ -507,20 +736,73 @@ export default function InvestigationDetailPage() {
               {analyzingAi ? 'Synthesizing...' : 'AI Synthesis'}
             </button>
 
-            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-              <button onClick={() => handleExport('json')} className="btn btn-ghost btn-sm" title="Export JSON">
-                JSON
+            <div className="glass-panel-subtle" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', padding: '4px 8px', borderRadius: 'var(--radius)' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginRight: '4px', letterSpacing: '0.05em' }}>
+                Export:
+              </span>
+              <button
+                onClick={() => handleExport('json')}
+                disabled={isExporting !== null}
+                className="btn btn-ghost btn-xs"
+                title="Export complete JSON raw dump"
+                style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
+              >
+                <FileCode size={13} style={{ color: 'var(--color-accent)' }} /> JSON
               </button>
-              <button onClick={() => handleExport('csv')} className="btn btn-ghost btn-sm" title="Export CSV">
-                CSV
+              <button
+                onClick={() => handleExport('csv')}
+                disabled={isExporting !== null}
+                className="btn btn-ghost btn-xs"
+                title="Export Excel/Sheets UTF-8 CSV"
+                style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
+              >
+                <FileSpreadsheet size={13} style={{ color: 'var(--color-info)' }} /> CSV
               </button>
-              <button onClick={handleExportStix} className="btn btn-ghost btn-sm" title="Export OASIS STIX 2.1 Threat Intel">
-                <ShieldCheck size={14} style={{ color: 'var(--color-accent)' }} /> STIX 2.1
+              <button
+                onClick={() => handleExport('stix')}
+                disabled={isExporting !== null}
+                className="btn btn-ghost btn-xs"
+                title="Export OASIS STIX 2.1 Threat Intel Bundle"
+                style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
+              >
+                <ShieldCheck size={13} style={{ color: '#9333ea' }} /> STIX 2.1
               </button>
-              <button onClick={() => handleExport('html')} className="btn btn-ghost btn-sm" title="Download HTML Report">
-                <FileText size={16} /> Report
+              <button
+                onClick={() => handleExport('html')}
+                disabled={isExporting !== null}
+                className="btn btn-ghost btn-xs"
+                title="Download Standalone HTML Intelligence Dossier"
+                style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
+              >
+                <FileText size={13} style={{ color: 'var(--color-accent)' }} /> HTML
               </button>
             </div>
+
+            {/* Export Success Toast */}
+            {exportToast && (
+              <div
+                className="glass-pill"
+                style={{
+                  position: 'fixed',
+                  bottom: '24px',
+                  right: '24px',
+                  background: 'rgba(16, 185, 129, 0.9)',
+                  color: 'white',
+                  padding: '10px 18px',
+                  borderRadius: 'var(--radius-lg)',
+                  boxShadow: '0 8px 30px rgba(0,0,0,0.25)',
+                  zIndex: 9999,
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  animation: 'shimmerAnim 2s infinite'
+                }}
+              >
+                <Check size={16} /> {exportToast}
+              </div>
+            )}
 
             <button onClick={fetchData} className="btn btn-ghost btn-sm" title="Refresh">
               <RefreshCw size={16} />
@@ -533,23 +815,24 @@ export default function InvestigationDetailPage() {
       {/* PROMINENT SCAN STATUS & LIVE TELEMETRY BLOCK ELEMENT     */}
       {/* ======================================================== */}
       <div
-        className="card"
+        className="glass-card"
         style={{
           marginBottom: 'var(--space-6)',
           padding: 'var(--space-6)',
           background: investigation.status === 'running'
-            ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(16, 185, 129, 0.05) 100%)'
+            ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.12) 0%, rgba(16, 185, 129, 0.08) 100%)'
             : investigation.status === 'completed'
-            ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.06) 0%, rgba(37, 99, 235, 0.03) 100%)'
-            : 'var(--color-surface)',
+            ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(37, 99, 235, 0.05) 100%)'
+            : 'var(--glass-bg-card)',
           border: investigation.status === 'running'
             ? '1.5px solid var(--color-accent)'
-            : '1.5px solid var(--color-border)',
+            : '1px solid var(--glass-border)',
           boxShadow: investigation.status === 'running'
-            ? '0 0 24px rgba(37, 99, 235, 0.16)'
-            : 'var(--shadow-sm)',
+            ? '0 0 28px rgba(37, 99, 235, 0.22)'
+            : 'var(--glass-shadow)',
           position: 'relative',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          zIndex: 1,
         }}
       >
         {/* Top Header Row inside Block */}

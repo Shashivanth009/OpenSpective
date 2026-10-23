@@ -21,8 +21,32 @@ export default function InvestigationDetailPage() {
   const [expandedFinding, setExpandedFinding] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'findings' | 'timeline' | 'scorecard' | 'dorks'>('findings');
   const [dorkEngineFilter, setDorkEngineFilter] = useState<string>('all');
+  const [selectedCollector, setSelectedCollector] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const COLLECTOR_OSINT_META: Record<string, { label: string; suite: string; icon: string }> = {
+    certificate_transparency: { label: 'Subfinder & crt.sh', suite: 'Passive Subdomain Discovery', icon: '🌐' },
+    username_presence: { label: 'Sherlock & WhatsMyName', suite: 'Account Footprint & Verification', icon: '👤' },
+    email_identity: { label: 'theHarvester & Hunter', suite: 'Email Recon & Author Footprint', icon: '📧' },
+    tech_stack: { label: 'Wappalyzer & BuiltWith', suite: 'Tech Stack & CMS Fingerprinting', icon: '⚡' },
+    web_archive: { label: 'Waybackurls & GAU', suite: 'Historical Archive & Endpoints', icon: '🏛️' },
+    shodan: { label: 'Shodan & Censys', suite: 'Port Scanning & Exposed CVEs', icon: '🛡️' },
+    threat_intel: { label: 'URLhaus & ThreatFox', suite: 'Malware IOCs & Abuse Intel', icon: '☣️' },
+    cloud_storage: { label: 'S3Scanner & CloudEnum', suite: 'Cloud Bucket Permutations', icon: '☁️' },
+    search_dorks: { label: 'Google Dorks & Search Intel', suite: 'Config & Secret Leak Queries', icon: '🔍' },
+    pgp_keys: { label: 'Ubuntu PGP Keyserver', suite: 'Cryptographic Public Keys', icon: '🔑' },
+    dns_security: { label: 'SecurityHeaders & DNS Hygiene', suite: 'SPF, DMARC, BIMI & DNSSEC', icon: '🔒' },
+    rdap: { label: 'ICANN RDAP & WHOIS', suite: 'Domain & IP Registry Info', icon: '📋' },
+    dns: { label: 'MassDNS & Cloudflare DNS', suite: 'Authoritative DNS Records', icon: '📡' },
+    ipinfo: { label: 'BGPView & GeoIP', suite: 'ASN & Autonomous Systems', icon: '🗺️' },
+    github: { label: 'GitHub Git Forensics', suite: 'Public Repos & Author Leaks', icon: '🐙' },
+    breach: { label: 'HaveIBeenPwned & Leak Intel', suite: 'Compromised Credentials & Dumps', icon: '🚨' },
+    location: { label: 'OpenStreetMap & Nominatim', suite: 'Geocoding & Spatial Intel', icon: '📍' },
+    phone: { label: 'Numverify & Global E.164', suite: 'Telephony & Carrier Attribution', icon: '📱' },
+    crypto: { label: 'Etherscan & Blockchain Explorer', suite: 'Ledger Audit & Wallet Balance', icon: '🪙' },
+    person_search: { label: 'Wikipedia & Entity Graph', suite: 'Public Entity & Identity Recon', icon: '👥' },
+  };
 
   const getRawDataObj = (f: api.Finding): any => {
     if (!f.raw_data) return null;
@@ -287,13 +311,64 @@ export default function InvestigationDetailPage() {
     };
   }, [findings]);
 
+  const isFindingFromCollector = (f: api.Finding, collector: string): boolean => {
+    const src = (f.source_name || '').toLowerCase();
+    const cat = (f.category || '').toLowerCase();
+    const typ = (f.type || '').toLowerCase();
+    switch (collector) {
+      case 'certificate_transparency':
+        return src.includes('crt') || src.includes('subfinder') || cat === 'certificate' || cat === 'subdomain';
+      case 'username_presence':
+        return src.includes('sherlock') || src.includes('whatsmyname') || typ === 'account_presence';
+      case 'email_identity':
+        return src.includes('theharvester') || src.includes('hunter') || typ.includes('email');
+      case 'tech_stack':
+        return src.includes('wappalyzer') || src.includes('builtwith') || cat === 'technology';
+      case 'web_archive':
+        return src.includes('wayback') || src.includes('gau') || typ === 'archive_url';
+      case 'shodan':
+        return src.includes('shodan') || src.includes('censys') || typ === 'passive_open_ports' || typ.includes('cve');
+      case 'threat_intel':
+        return src.includes('urlhaus') || src.includes('threatfox') || typ === 'threat_ioc';
+      case 'cloud_storage':
+        return src.includes('s3scanner') || src.includes('cloudenum') || typ === 'cloud_bucket';
+      case 'search_dorks':
+        return src.includes('dork') || typ === 'osint_search_dork';
+      case 'pgp_keys':
+        return src.includes('pgp') || typ === 'pgp_public_key';
+      case 'dns_security':
+        return src.includes('securityheaders') || typ.includes('dns_sec') || typ === 'security_hygiene_score';
+      case 'rdap':
+        return src.includes('rdap') || cat === 'rdap';
+      case 'dns':
+        return src.includes('dns') || cat === 'dns';
+      case 'ipinfo':
+        return src.includes('ipinfo') || src.includes('bgp') || typ === 'ip_asn';
+      case 'github':
+        return src.includes('github') || cat === 'developer_activity';
+      case 'breach':
+        return src.includes('haveibeenpwned') || cat === 'breach' || typ === 'breach_record';
+      case 'location':
+        return src.includes('openstreetmap') || cat === 'location_intelligence';
+      case 'phone':
+        return src.includes('numverify') || (cat === 'identity' && typ === 'phone_profile');
+      case 'crypto':
+        return src.includes('blockchain') || cat === 'blockchain';
+      case 'person_search':
+        return src.includes('wikipedia') || src.includes('wikidata') || src.includes('hackernews');
+      default:
+        return src.includes(collector.toLowerCase());
+    }
+  };
+
   const filteredFindings = findings.filter(f => {
     const matchesCat = selectedCategory === 'all' || f.category.toLowerCase() === selectedCategory.toLowerCase();
     const matchesSearch = !searchFilter ||
       f.value.toLowerCase().includes(searchFilter.toLowerCase()) ||
       f.type.toLowerCase().includes(searchFilter.toLowerCase()) ||
       (f.notes && f.notes.toLowerCase().includes(searchFilter.toLowerCase()));
-    return matchesCat && matchesSearch;
+    const matchesCollector = !selectedCollector || isFindingFromCollector(f, selectedCollector);
+    return matchesCat && matchesSearch && matchesCollector;
   });
 
   const categories = ['all', ...Array.from(new Set(findings.map(f => f.category)))];
@@ -407,31 +482,83 @@ export default function InvestigationDetailPage() {
 
       {/* Collector Executions Progress Row */}
       <div className="card" style={{ marginBottom: 'var(--space-6)', padding: 'var(--space-5)' }}>
-        <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--color-dark)', marginBottom: 'var(--space-3)' }}>
-          Active Intelligence Telemetry
-        </h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
-          {executions.map(exec => (
-            <div key={exec.id} style={{
-              padding: 'var(--space-3)',
-              borderRadius: 'var(--radius)',
-              background: 'var(--color-bg)',
-              border: '1px solid var(--color-border)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}>
-              <div>
-                <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-dark)' }}>
-                  {exec.collector_name.replace('_', ' ')}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+          <div>
+            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 800, color: 'var(--color-dark)', margin: 0 }}>
+              Active Intelligence Telemetry ({executions.length} OSINT Tool Engines Executed)
+            </h3>
+            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+              Click any tool card below to isolate and view its specific discovered findings
+            </span>
+          </div>
+          {selectedCollector && (
+            <button
+              onClick={() => setSelectedCollector(null)}
+              className="btn btn-ghost btn-xs"
+              style={{ fontSize: '11px', color: 'var(--color-accent)', fontWeight: 700 }}
+            >
+              Reset Filter (Showing: {COLLECTOR_OSINT_META[selectedCollector]?.label || selectedCollector})
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
+          {executions.map(exec => {
+            const meta = COLLECTOR_OSINT_META[exec.collector_name] || {
+              label: exec.collector_name.replace(/_/g, ' '),
+              suite: 'Intelligence Engine',
+              icon: '⚡',
+            };
+            const isFilterActive = selectedCollector === exec.collector_name;
+            const durationMs = exec.completed_at && exec.started_at
+              ? Math.max(0, new Date(exec.completed_at).getTime() - new Date(exec.started_at).getTime())
+              : null;
+
+            return (
+              <div
+                key={exec.id}
+                onClick={() => {
+                  setSelectedCollector(isFilterActive ? null : exec.collector_name);
+                  setActiveTab('findings');
+                }}
+                style={{
+                  padding: 'var(--space-3)',
+                  borderRadius: 'var(--radius)',
+                  background: isFilterActive ? 'var(--color-bg-secondary)' : 'var(--color-bg)',
+                  border: isFilterActive ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  boxShadow: isFilterActive ? '0 0 0 1px var(--color-accent)' : 'none',
+                }}
+                title={`Click to filter findings from ${meta.label}`}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '14px' }}>{meta.icon}</span>
+                    <strong style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-dark)' }}>
+                      {meta.label}
+                    </strong>
+                  </div>
+                  {getStatusBadge(exec.status)}
                 </div>
-                <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: 2 }}>
-                  {exec.findings_count} findings
+
+                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginBottom: '6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {meta.suite}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--color-text-secondary)', borderTop: '1px solid var(--color-border-subtle)', paddingTop: '4px' }}>
+                  <span style={{ fontWeight: exec.findings_count > 0 ? 700 : 400, color: exec.findings_count > 0 ? 'var(--color-dark)' : 'var(--color-text-muted)' }}>
+                    {exec.findings_count} {exec.findings_count === 1 ? 'finding' : 'findings'}
+                  </span>
+                  {durationMs !== null && (
+                    <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                      {durationMs}ms
+                    </span>
+                  )}
                 </div>
               </div>
-              {getStatusBadge(exec.status)}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

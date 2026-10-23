@@ -7,33 +7,49 @@ import {
 import * as api from '../api.ts';
 
 const MODULES_CONFIG = [
-  { id: 'dns', name: 'DNS Intelligence', desc: 'A, AAAA, MX, NS, TXT, CNAME, SOA, CAA records via 1.1.1.1 DoH', types: ['domain', 'email', 'url', 'organization'] },
-  { id: 'rdap', name: 'RDAP / WHOIS', desc: 'Domain registrar, dates, RIR IP allocation data', types: ['domain', 'ip', 'email', 'url'] },
-  { id: 'certificate_transparency', name: 'Certificate Transparency', desc: 'Historical & active SSL certificates, SAN subdomains from crt.sh', types: ['domain', 'email', 'url', 'organization'] },
-  { id: 'ipinfo', name: 'IP Geolocation & ASN', desc: 'Country, city, ASN number, organization route mapping', types: ['ip', 'domain'] },
-  { id: 'virustotal', name: 'VirusTotal Threat Intel', desc: 'Reputation analysis across 70+ threat intelligence engines (requires key)', types: ['domain', 'ip', 'url', 'email'] },
-  { id: 'github', name: 'GitHub Public Intelligence', desc: 'Public repositories, contributors, code associations', types: ['organization', 'username', 'email', 'domain'] },
-  { id: 'person_search', name: 'Public Person & Entity Search', desc: 'GitHub full name matches, Wikipedia articles, Wikidata knowledge graph, HackerNews mentions', types: ['person'] },
-  { id: 'username_presence', name: 'Cross-Platform Username Footprint', desc: 'Verifies presence across GitHub, GitLab, HackerNews, PyPI, NPM, Keybase, DEV, and Hashnode', types: ['username', 'person'] },
-  { id: 'email_identity', name: 'Email & Developer Attribution', desc: 'Discovers verified git commits, real author names, linked GitHub profiles, Gravatar accounts, and handle footprints', types: ['email'] },
-  { id: 'url_metadata', name: 'URL Metadata & Headers', desc: 'HTTP response status, title, redirects, headers (single bounded request)', types: ['url'] },
-  { id: 'web_archive', name: 'Wayback Machine Archive', desc: 'Internet Archive CDX snapshots, historical discovery dates, and archived endpoints', types: ['domain', 'url', 'organization'] },
-  { id: 'tech_stack', name: 'Security Headers & Tech Stack', desc: 'Evaluates HSTS, CSP, X-Frame-Options, server headers, and CDN/WAF defenses', types: ['domain', 'url', 'organization'] },
+  { id: 'certificate_transparency', name: 'Subfinder & crt.sh (Subdomains)', desc: 'Discovers active subdomains, root domains, and historical SSL/TLS certificates via crt.sh CT log streams', types: ['domain', 'email', 'url', 'organization'] },
+  { id: 'username_presence', name: 'Sherlock & WhatsMyName (Profiles)', desc: 'Performs zero-false-positive profile verification across GitHub, GitLab, DockerHub, NPM, Keybase, HackerNews, Mastodon, and 15+ registries', types: ['username', 'person'] },
+  { id: 'email_identity', name: 'theHarvester & Hunter (Email Recon)', desc: 'Discovers verified git commits, real author names, linked GitHub profiles, Gravatar accounts, and handle footprints', types: ['email'] },
+  { id: 'tech_stack', name: 'Wappalyzer & BuiltWith (Tech Stack)', desc: 'Audits HTTP security hygiene (HSTS, CSP, X-Frame-Options) and detects web servers & CDN/WAF defenses', types: ['domain', 'url', 'organization'] },
+  { id: 'web_archive', name: 'Waybackurls & GAU (Historical Archives)', desc: 'Searches Internet Archive CDX index for historical snapshots, first-seen timestamps, and archived endpoints', types: ['domain', 'url', 'organization'] },
+  { id: 'shodan', name: 'Shodan & Censys (Ports & CVEs)', desc: 'Passively maps open network ports, detected software CPEs, and known CVE vulnerabilities without active socket probing', types: ['ip', 'domain'] },
+  { id: 'dns_security', name: 'SecurityHeaders & Defensive DNS Hygiene', desc: 'Audits SPF, DMARC, BIMI, MTA-STS, TLS-RPT, and DNSSEC defenses and grades domain spoofability', types: ['domain', 'email', 'organization'] },
+  { id: 'threat_intel', name: 'Abuse.ch URLhaus & ThreatFox (Threat IOCs)', desc: 'Queries live abuse databases for malware distribution payloads, malicious host reputation, and botnet command & control indicators', types: ['domain', 'ip', 'url', 'organization'] },
+  { id: 'cloud_storage', name: 'S3Scanner & CloudEnum (Cloud Buckets)', desc: 'Enumerates storage bucket naming permutations across Amazon Web Services S3, Google Cloud Storage, and Azure Blobs', types: ['domain', 'organization', 'url'] },
+  { id: 'search_dorks', name: 'Google Dorks & Search Intelligence', desc: 'Compiles and checks targeted search queries across Google, GitHub Code, Shodan, Censys, FOFA, and Pastebin', types: ['domain', 'ip', 'email', 'username', 'url', 'organization', 'person', 'phone'] },
+  { id: 'pgp_keys', name: 'Ubuntu PGP Public Keyserver', desc: 'Queries Ubuntu / SKS PGP keyservers for cryptographic public keys, email identities, and creation timestamps', types: ['email', 'person', 'username', 'organization', 'domain'] },
+  { id: 'dns', name: 'Authoritative DNS (Cloudflare DoH)', desc: 'Retrieves authoritative DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA, CAA) using Cloudflare DNS over HTTPS', types: ['domain', 'email', 'url', 'organization'] },
+  { id: 'rdap', name: 'RDAP & WHOIS (IANA / Verisign)', desc: 'Retrieves authoritative domain and IP registration data from ICANN RDAP and regional internet registries', types: ['domain', 'ip', 'email', 'url'] },
+  { id: 'ipinfo', name: 'IPinfo Geolocation & ASN Mapping', desc: 'Retrieves public IP geolocation, autonomous system numbers (ASN), carrier, and organization route mapping', types: ['ip', 'domain'] },
+  { id: 'github', name: 'GitHub Public Repos & Code Leaks', desc: 'Searches public GitHub repositories, code commits, contributors, and organizational structures', types: ['organization', 'username', 'email', 'domain'] },
+  { id: 'breach', name: 'Have I Been Pwned & Breach Records', desc: 'Checks targets against documented public breach datasets and credential exposure archives', types: ['email', 'domain', 'username'] },
+  { id: 'location', name: 'Bellingcat & OpenStreetMap (GEOINT)', desc: 'Geocodes physical locations, profiles, and commit timezone signatures into coordinates with OpenStreetMap and Google Maps links', types: ['person', 'email', 'username', 'organization', 'ip'] },
+  { id: 'phone', name: 'PhoneInfoga & Telephony Intelligence', desc: 'Analyzes international ITU-T E.164 dialing plans, telecom region, line type (mobile/fixed/toll-free), and OSINT search pivots', types: ['phone'] },
   { id: 'crypto', name: 'Blockchain & Crypto Forensics', desc: 'Analyzes Bitcoin, Ethereum, Solana, and TRON wallet balances, activity, and transactions', types: ['crypto_wallet', 'person', 'username'] },
-  { id: 'breach', name: 'Breach & Credential Exposure', desc: 'Checks targets against documented public breach datasets and credential exposure archives', types: ['email', 'domain', 'username'] },
-  { id: 'location', name: 'Geolocation & Places Intelligence', desc: 'Geocodes physical locations, profiles, and commit timezone signatures into coordinates with OpenStreetMap and Google Maps links', types: ['person', 'email', 'username', 'organization', 'ip'] },
+  { id: 'virustotal', name: 'VirusTotal Threat Intel', desc: 'Reputation analysis across 70+ threat intelligence engines (requires key)', types: ['domain', 'ip', 'url', 'email'] },
+  { id: 'person_search', name: 'Public Person & Entity Search', desc: 'GitHub full name matches, Wikipedia articles, Wikidata knowledge graph, HackerNews mentions', types: ['person'] },
 ];
 
 export default function InvestigatePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const initialQuery = searchParams.get('q') || '';
+  const initialQuery = searchParams.get('q') || searchParams.get('target') || '';
+  const initialType = searchParams.get('type') || 'auto';
+  const initialModule = searchParams.get('module');
 
   const [target, setTarget] = useState(initialQuery);
-  const [targetType, setTargetType] = useState<string>('auto');
-  const [selectedModules, setSelectedModules] = useState<string[]>([
-    'dns', 'rdap', 'certificate_transparency', 'ipinfo', 'github', 'person_search', 'username_presence', 'email_identity', 'url_metadata', 'web_archive', 'tech_stack', 'crypto', 'breach', 'location'
-  ]);
+  const [targetType, setTargetType] = useState<string>(initialType);
+  const [selectedModules, setSelectedModules] = useState<string[]>(() => {
+    const all = [
+      'certificate_transparency', 'username_presence', 'email_identity', 'tech_stack',
+      'web_archive', 'shodan', 'dns_security', 'threat_intel', 'cloud_storage',
+      'search_dorks', 'pgp_keys', 'dns', 'rdap', 'ipinfo', 'github', 'breach', 'location', 'phone', 'crypto', 'person_search'
+    ];
+    if (initialModule && all.includes(initialModule)) {
+      return all;
+    }
+    return all;
+  });
   const [enableAi, setEnableAi] = useState(true);
   const [loading, setLoading] = useState(false);
   const [classifying, setClassifying] = useState(false);

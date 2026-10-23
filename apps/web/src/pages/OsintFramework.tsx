@@ -2575,6 +2575,33 @@ export default function OsintFrameworkPage() {
     navigate(`/investigate?q=${encodeURIComponent(activeTarget.trim())}`);
   };
 
+  const mapToolToModule = (tool: OsintTool): string => {
+    const t = tool.id.toLowerCase();
+    const cat = tool.category.toLowerCase();
+    if (t.includes('subfinder') || t.includes('crt') || t.includes('findomain') || t.includes('amass')) return 'certificate_transparency';
+    if (t.includes('sherlock') || t.includes('whatsmyname') || t.includes('blackbird') || cat.includes('username')) return 'username_presence';
+    if (t.includes('harvester') || t.includes('hunter') || cat.includes('email')) return 'email_identity';
+    if (t.includes('wappalyzer') || t.includes('builtwith') || cat.includes('fingerprinting')) return 'tech_stack';
+    if (t.includes('wayback') || t.includes('gau') || cat.includes('crawling')) return 'web_archive';
+    if (t.includes('shodan') || t.includes('censys') || t.includes('fofa') || t.includes('zoomeye')) return 'shodan';
+    if (t.includes('urlhaus') || t.includes('threatfox') || cat.includes('threat')) return 'threat_intel';
+    if (t.includes('s3') || t.includes('cloud') || cat.includes('cloud')) return 'cloud_storage';
+    if (t.includes('dork') || cat.includes('search engine')) return 'search_dorks';
+    if (t.includes('pgp') || t.includes('key')) return 'pgp_keys';
+    if (cat.includes('domain') || cat.includes('dns')) return 'dns';
+    if (cat.includes('ip') || cat.includes('network')) return 'ipinfo';
+    if (cat.includes('github') || cat.includes('code')) return 'github';
+    if (cat.includes('breach')) return 'breach';
+    if (cat.includes('geoint') || cat.includes('satellite')) return 'location';
+    return 'dns';
+  };
+
+  const handleScanWithTool = (tool: OsintTool) => {
+    const targetToUse = activeTarget.trim() || 'example.com';
+    const mod = mapToolToModule(tool);
+    navigate(`/investigate?q=${encodeURIComponent(targetToUse)}&module=${encodeURIComponent(mod)}`);
+  };
+
   // Filtered tools
   const filteredTools = useMemo(() => {
     return OSINT_TOOLS_REGISTRY.filter(tool => {
@@ -2935,7 +2962,7 @@ export default function OsintFrameworkPage() {
                 flexWrap: 'wrap',
                 gap: 'var(--space-2)'
               }}>
-                <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+                <div style={{ display: 'flex', gap: 'var(--space-1)', alignItems: 'center', flexWrap: 'wrap' }}>
                   <button
                     onClick={() => handleCopyText(resolvedUrl, `url-${tool.id}`)}
                     className="btn btn-ghost btn-xs"
@@ -2943,6 +2970,15 @@ export default function OsintFrameworkPage() {
                   >
                     {copiedId === `url-${tool.id}` ? <Check size={12} /> : <Copy size={12} />}
                     {copiedId === `url-${tool.id}` ? 'Copied' : 'Copy Query'}
+                  </button>
+
+                  <button
+                    onClick={() => handleScanWithTool(tool)}
+                    className="btn btn-secondary btn-xs"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}
+                    title={`Scan active target in OpenSpective with ${tool.name}`}
+                  >
+                    <Shield size={11} style={{ color: 'var(--color-accent)' }} /> Scan In OpenSpective
                   </button>
                 </div>
 

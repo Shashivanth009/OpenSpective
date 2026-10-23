@@ -21,7 +21,13 @@ import { collectLocationIntelligence } from './collectors/location.ts';
 import { collectShodanInternetDb } from './collectors/shodan.ts';
 import { collectPhoneIntelligence } from './collectors/phone.ts';
 import { collectDnsSecurity } from './collectors/dns_security.ts';
-import { collectOsintFramework } from './collectors/osint_framework.ts';
+import {
+  collectOsintFramework,
+  queryPgpKeyserver,
+  queryUrlhausHost,
+  generateOsintFrameworkDorks,
+  generateCloudBucketPermutations
+} from './collectors/osint_framework.ts';
 
 interface OrchestratorContext {
   investigationId: string;
@@ -1814,20 +1820,15 @@ async function runDnsSecurityCollector(ctx: OrchestratorContext, domain: string)
   }
 }
 
-// ---- OSINT Framework & Deep Search Techniques runner ----
-async function runOsintFrameworkCollector(
-  ctx: OrchestratorContext,
-  target: string,
-  targetType: TargetType
-): Promise<void> {
-  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'osint_framework');
+// ---- Ubuntu PGP Public Keyserver Runner ----
+async function runPgpKeysCollector(ctx: OrchestratorContext, target: string): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'pgp_keys');
   try {
-    const result = await collectOsintFramework(target, targetType);
+    const keys = await queryPgpKeyserver(target);
     const findings: Omit<Finding, 'id'>[] = [];
-    const ts = result.collectedAt;
+    const ts = nowIso();
 
-    // 1. PGP Public Keys
-    for (const key of result.pgpKeys) {
+    for (const key of keys) {
       findings.push({
         investigationId: ctx.investigationId,
         collectorExecutionId: execId,
@@ -1845,49 +1846,60 @@ async function runOsintFrameworkCollector(
         isInferred: false,
         notes: `Identities: ${key.identities.join(' | ') || 'None'}. Fingerprint: ${key.fingerprint || 'N/A'}. Keyserver: ${key.keyserverUrl}`,
       });
-
-      for (const uid of key.identities) {
-        await persistRelationship(ctx.env.DB, {
-          investigationId: ctx.investigationId,
-          fromEntityType: (['email', 'person', 'username'].includes(ctx.targetType) ? ctx.targetType : 'email') as any,
-          toEntityType: 'url',
-          fromValue: target,
-          toValue: key.keyserverUrl,
-          relationshipType: 'affiliated_with',
-          findingId: null,
-          sourceUrl: key.keyserverUrl,
-          confidence: 'high',
-          isInferred: false,
-          collectedAt: ts,
-          fromEntityId: '',
-          toEntityId: '',
-        });
-      }
     }
 
-    // 2. Abuse.ch URLhaus Threat IOCs
-    if (result.threatIntel && result.threatIntel.queryStatus !== 'no_results' && result.threatIntel.urlCount > 0) {
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// ---- Abuse.ch URLhaus & ThreatFox Threat Intel Runner ----
+async function runThreatIntelCollector(ctx: OrchestratorContext, target: string): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'threat_intel');
+  try {
+    const cleanHost = target.replace(/^https?:\/\//i, '').split('/')[0] || target;
+    const threat = await queryUrlhausHost(cleanHost);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = nowIso();
+
+    if (threat && threat.queryStatus !== 'no_results' && threat.urlCount > 0) {
       findings.push({
         investigationId: ctx.investigationId,
         collectorExecutionId: execId,
         category: 'threat_intelligence',
         subcategory: 'malware_ioc',
         type: 'urlhaus_ioc',
-        value: `Abuse.ch URLhaus: ${result.threatIntel.threatStatus.toUpperCase()} (${result.threatIntel.activePayloadsCount} active payloads, ${result.threatIntel.urlCount} recorded threats)`,
-        rawData: { ...result.threatIntel },
+        value: `Abuse.ch URLhaus: ${threat.threatStatus.toUpperCase()} (${threat.activePayloadsCount} active payloads, ${threat.urlCount} recorded threats)`,
+        rawData: { ...threat },
         confidence: 'high',
-        severity: result.threatIntel.threatStatus === 'malicious' ? 'critical' : 'info',
-        sourceUrl: result.threatIntel.referenceUrl ?? null,
-        sourceName: 'Abuse.ch URLhaus',
+        severity: threat.threatStatus === 'malicious' ? 'critical' : 'info',
+        sourceUrl: threat.referenceUrl ?? null,
+        sourceName: 'Abuse.ch URLhaus & ThreatFox',
         firstSeen: ts,
         lastSeen: ts,
         isInferred: false,
-        notes: `Threat tags: ${result.threatIntel.tags.join(', ') || 'None'}. Active payloads: ${result.threatIntel.activePayloadsCount}.`,
+        notes: `Threat tags: ${threat.tags.join(', ') || 'None'}. Active payloads: ${threat.activePayloadsCount}.`,
       });
     }
 
-    // 3. Cloud Storage Buckets
-    for (const bucket of result.cloudStorageBuckets) {
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// ---- S3Scanner & CloudEnum Cloud Storage Bucket Runner ----
+async function runCloudStorageCollector(ctx: OrchestratorContext, target: string): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'cloud_storage');
+  try {
+    const buckets = generateCloudBucketPermutations(target);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = nowIso();
+
+    for (const bucket of buckets) {
       findings.push({
         investigationId: ctx.investigationId,
         collectorExecutionId: execId,
@@ -1899,7 +1911,7 @@ async function runOsintFrameworkCollector(
         confidence: 'medium',
         severity: 'info',
         sourceUrl: bucket.url,
-        sourceName: 'OSINT Cloud Permutation Recon',
+        sourceName: 'S3Scanner & CloudEnum Recon',
         firstSeen: ts,
         lastSeen: ts,
         isInferred: true,
@@ -1907,7 +1919,60 @@ async function runOsintFrameworkCollector(
       });
     }
 
-    // 4. OSINT Search Dorks Matrix
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// ---- Google Dorks & OSINT Search Intelligence Runner ----
+async function runSearchDorksCollector(ctx: OrchestratorContext, target: string, targetType: TargetType): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'search_dorks');
+  try {
+    const dorks = generateOsintFrameworkDorks(target, targetType);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = nowIso();
+
+    for (const dork of dorks) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'reconnaissance',
+        subcategory: 'search_dorks',
+        type: `osint_dork_${dork.category}`,
+        value: `[${dork.platform}] ${dork.title}`,
+        rawData: { ...dork },
+        confidence: 'high',
+        severity: 'info',
+        sourceUrl: dork.searchUrl,
+        sourceName: 'Google Dorks & Search Intelligence',
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: `${dork.description}\nSearch Query: ${dork.query}\nDirect Link: ${dork.searchUrl}`,
+      });
+    }
+
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// Master OSINT Framework runner (backward compatibility)
+async function runOsintFrameworkCollector(
+  ctx: OrchestratorContext,
+  target: string,
+  targetType: TargetType
+): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'osint_framework');
+  try {
+    const result = await collectOsintFramework(target, targetType);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = result.collectedAt;
+
     for (const dork of result.searchDorks) {
       findings.push({
         investigationId: ctx.investigationId,
@@ -1925,22 +1990,6 @@ async function runOsintFrameworkCollector(
         lastSeen: ts,
         isInferred: false,
         notes: `${dork.description}\nSearch Query: ${dork.query}\nDirect Link: ${dork.searchUrl}`,
-      });
-
-      await persistRelationship(ctx.env.DB, {
-        investigationId: ctx.investigationId,
-        fromEntityType: (['domain', 'ip', 'email', 'username', 'organization', 'person', 'phone'].includes(ctx.targetType) ? ctx.targetType : 'domain') as any,
-        toEntityType: 'url',
-        fromValue: target,
-        toValue: dork.searchUrl,
-        relationshipType: 'mentions',
-        findingId: null,
-        sourceUrl: dork.searchUrl,
-        confidence: 'high',
-        isInferred: false,
-        collectedAt: ts,
-        fromEntityId: '',
-        toEntityId: '',
       });
     }
 
@@ -1979,6 +2028,9 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, normalizedTarget));
         if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, normalizedTarget));
         if (shouldRun('breach')) runners.push(() => runBreachCollector(ctx, normalizedTarget, 'domain'));
+        if (shouldRun('cloud_storage')) runners.push(() => runCloudStorageCollector(ctx, normalizedTarget));
+        if (shouldRun('threat_intel')) runners.push(() => runThreatIntelCollector(ctx, normalizedTarget));
+        if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'domain'));
         break;
       }
 
@@ -1994,6 +2046,8 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (shouldRun('email_identity')) runners.push(() => runEmailIdentityCollector(ctx, normalizedTarget));
         if (shouldRun('breach')) runners.push(() => runBreachCollector(ctx, normalizedTarget, 'email'));
         if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, []));
+        if (shouldRun('pgp_keys')) runners.push(() => runPgpKeysCollector(ctx, normalizedTarget));
+        if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'email'));
 
         // For corporate/custom domains, also run infrastructure DNS/RDAP/CT/WebArchive/Security Hygiene
         if (!isConsumer) {
@@ -2004,6 +2058,7 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
           if (shouldRun('certificate_transparency')) runners.push(() => runCertificateCollector(ctx, domain));
           if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, domain));
           if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, domain));
+          if (shouldRun('threat_intel')) runners.push(() => runThreatIntelCollector(ctx, domain));
         }
         break;
       }
@@ -2013,6 +2068,8 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (shouldRun('ipinfo')) runners.push(() => runIpInfoCollector(ctx, normalizedTarget));
         if (shouldRun('shodan')) runners.push(() => runShodanCollector(ctx, normalizedTarget, false));
         if (shouldRun('virustotal')) runners.push(() => runVtCollector(ctx, normalizedTarget, 'ip'));
+        if (shouldRun('threat_intel')) runners.push(() => runThreatIntelCollector(ctx, normalizedTarget));
+        if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'ip'));
         if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
         break;
       }
@@ -2027,6 +2084,9 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
           if (shouldRun('virustotal')) runners.push(() => runVtCollector(ctx, normalizedTarget, 'url'));
           if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, domain));
           if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, normalizedTarget));
+          if (shouldRun('threat_intel')) runners.push(() => runThreatIntelCollector(ctx, domain));
+          if (shouldRun('cloud_storage')) runners.push(() => runCloudStorageCollector(ctx, domain));
+          if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'url'));
         } catch {
           // Invalid URL — skip
         }
@@ -2037,6 +2097,8 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (shouldRun('github')) runners.push(() => runGitHubCollector(ctx, normalizedTarget, true));
         if (shouldRun('username_presence')) runners.push(() => runUsernamePresenceCollector(ctx, normalizedTarget));
         if (shouldRun('breach')) runners.push(() => runBreachCollector(ctx, normalizedTarget, 'username'));
+        if (shouldRun('pgp_keys')) runners.push(() => runPgpKeysCollector(ctx, normalizedTarget));
+        if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'username'));
         if (detectCryptoNetwork(normalizedTarget) !== 'unknown' && shouldRun('crypto')) {
           runners.push(() => runCryptoCollector(ctx, normalizedTarget));
         }
@@ -2051,7 +2113,6 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
 
       case 'organization': {
         if (shouldRun('github')) runners.push(() => runGitHubCollector(ctx, normalizedTarget, false));
-        // Try to find domain — heuristic only
         const slug = normalizedTarget.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
         const candidateDomain = `${slug}.com`;
         if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, candidateDomain));
@@ -2059,6 +2120,10 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (shouldRun('shodan')) runners.push(() => runShodanCollector(ctx, candidateDomain, true));
         if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, candidateDomain));
         if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, candidateDomain));
+        if (shouldRun('cloud_storage')) runners.push(() => runCloudStorageCollector(ctx, candidateDomain));
+        if (shouldRun('threat_intel')) runners.push(() => runThreatIntelCollector(ctx, candidateDomain));
+        if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'organization'));
+        if (shouldRun('pgp_keys')) runners.push(() => runPgpKeysCollector(ctx, normalizedTarget));
         if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
         break;
       }
@@ -2069,12 +2134,15 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (candidateSlug && candidateSlug.length >= 3 && candidateSlug.length <= 30 && shouldRun('username_presence')) {
           runners.push(() => runUsernamePresenceCollector(ctx, candidateSlug));
         }
+        if (shouldRun('pgp_keys')) runners.push(() => runPgpKeysCollector(ctx, normalizedTarget));
+        if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'person'));
         if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
         break;
       }
 
       case 'phone': {
         if (shouldRun('phone')) runners.push(() => runPhoneCollector(ctx, normalizedTarget));
+        if (shouldRun('search_dorks')) runners.push(() => runSearchDorksCollector(ctx, normalizedTarget, 'phone'));
         break;
       }
     }

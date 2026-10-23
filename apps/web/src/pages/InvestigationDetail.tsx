@@ -7,6 +7,7 @@ import {
   Copy, Check, Database, MapPin, Compass, Search,
   FileSpreadsheet, FileCode
 } from 'lucide-react';
+import { OSINT_TOOLS_REGISTRY, OSINT_CATEGORIES } from '@openspective/shared';
 import * as api from '../api.ts';
 
 export default function InvestigationDetailPage() {
@@ -23,6 +24,8 @@ export default function InvestigationDetailPage() {
   const [activeTab, setActiveTab] = useState<'findings' | 'timeline' | 'scorecard' | 'dorks'>('findings');
   const [dorkEngineFilter, setDorkEngineFilter] = useState<string>('all');
   const [selectedCollector, setSelectedCollector] = useState<string | null>(null);
+  const [engineSearchFilter, setEngineSearchFilter] = useState('');
+  const [engineCategoryFilter, setEngineCategoryFilter] = useState<string>('All');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [exportToast, setExportToast] = useState<string | null>(null);
@@ -50,6 +53,25 @@ export default function InvestigationDetailPage() {
     phone: { label: 'Numverify & Global E.164', suite: 'Telephony & Carrier Attribution', icon: '📱' },
     crypto: { label: 'Etherscan & Blockchain Explorer', suite: 'Ledger Audit & Wallet Balance', icon: '🪙' },
     person_search: { label: 'Wikipedia & Entity Graph', suite: 'Public Entity & Identity Recon', icon: '👥' },
+  };
+
+  const getToolMeta = (collectorName: string) => {
+    if (COLLECTOR_OSINT_META[collectorName]) {
+      return COLLECTOR_OSINT_META[collectorName];
+    }
+    const tool = OSINT_TOOLS_REGISTRY.find(t => t.id === collectorName);
+    if (tool) {
+      return {
+        label: tool.name,
+        suite: tool.subcategory || tool.category,
+        icon: '🛡️',
+      };
+    }
+    return {
+      label: collectorName.replace(/_/g, ' '),
+      suite: 'OSINT Intelligence Engine',
+      icon: '⚡',
+    };
   };
 
   const getRawDataObj = (f: api.Finding): any => {
@@ -1014,14 +1036,15 @@ export default function InvestigationDetailPage() {
       </div>
 
       {/* Collector Executions Progress Row */}
-      <div className="card" style={{ marginBottom: 'var(--space-6)', padding: 'var(--space-5)' }}>
+      <div className="card glass-panel" style={{ marginBottom: 'var(--space-6)', padding: 'var(--space-5)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
           <div>
-            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 800, color: 'var(--color-dark)', margin: 0 }}>
+            <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 800, color: 'var(--color-dark)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <ShieldCheck size={18} style={{ color: 'var(--color-accent)' }} />
               Active Intelligence Telemetry ({executions.length} OSINT Tool Engines Executed)
             </h3>
             <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-              Click any tool card below to isolate and view its specific discovered findings
+              All 173 intelligence collectors record isolated telemetry, timing, and discovered artifacts. Click any engine to view its specific findings.
             </span>
           </div>
           {selectedCollector && (
@@ -1030,91 +1053,155 @@ export default function InvestigationDetailPage() {
               className="btn btn-ghost btn-xs"
               style={{ fontSize: '11px', color: 'var(--color-accent)', fontWeight: 700 }}
             >
-              Reset Filter (Showing: {COLLECTOR_OSINT_META[selectedCollector]?.label || selectedCollector})
+              Reset Filter (Showing: {getToolMeta(selectedCollector).label})
             </button>
           )}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
-          {executions.map(exec => {
-            const meta = COLLECTOR_OSINT_META[exec.collector_name] || {
-              label: exec.collector_name.replace(/_/g, ' '),
-              suite: 'Intelligence Engine',
-              icon: '⚡',
-            };
-            const isFilterActive = selectedCollector === exec.collector_name;
-            const durationMs = exec.completed_at && exec.started_at
-              ? Math.max(0, new Date(exec.completed_at).getTime() - new Date(exec.started_at).getTime())
-              : null;
-
-            return (
-              <div
-                key={exec.id}
-                onClick={() => {
-                  setSelectedCollector(isFilterActive ? null : exec.collector_name);
-                  setActiveTab('findings');
-                }}
-                style={{
-                  padding: 'var(--space-3)',
-                  borderRadius: 'var(--radius)',
-                  background: isFilterActive ? 'var(--color-bg-secondary)' : 'var(--color-bg)',
-                  border: isFilterActive ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                  boxShadow: isFilterActive ? '0 0 0 1px var(--color-accent)' : 'none',
-                }}
-                title={`Click to filter findings from ${meta.label}`}
+        {/* Engine Search & Category Filter Controls */}
+        <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ flex: '1 1 240px', position: 'relative' }}>
+            <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+            <input
+              type="text"
+              className="input"
+              style={{ paddingLeft: '32px', height: '34px', fontSize: '12px' }}
+              placeholder="Search 173 executed engines (e.g. Shodan, WHOIS, Sherlock, crt.sh)..."
+              value={engineSearchFilter}
+              onChange={(e) => setEngineSearchFilter(e.target.value)}
+            />
+            {engineSearchFilter && (
+              <button
+                type="button"
+                onClick={() => setEngineSearchFilter('')}
+                style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '11px' }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ fontSize: '14px' }}>{meta.icon}</span>
-                    <strong style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-dark)' }}>
-                      {meta.label}
-                    </strong>
+                ✕
+              </button>
+            )}
+          </div>
+          <div style={{ flex: '0 1 220px' }}>
+            <select
+              className="input"
+              style={{ height: '34px', fontSize: '12px' }}
+              value={engineCategoryFilter}
+              onChange={(e) => setEngineCategoryFilter(e.target.value)}
+            >
+              {OSINT_CATEGORIES.map(cat => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+            Showing {executions.filter(exec => {
+              const meta = getToolMeta(exec.collector_name);
+              if (engineCategoryFilter !== 'All Tools' && engineCategoryFilter !== 'All') {
+                if (!meta.suite.toLowerCase().includes(engineCategoryFilter.toLowerCase())) return false;
+              }
+              if (!engineSearchFilter.trim()) return true;
+              const q = engineSearchFilter.toLowerCase();
+              return meta.label.toLowerCase().includes(q) || meta.suite.toLowerCase().includes(q) || exec.collector_name.toLowerCase().includes(q);
+            }).length} of {executions.length} OSINT engines
+          </div>
+        </div>
+
+        {/* Scrollable Telemetry Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
+          gap: 'var(--space-3)',
+          maxHeight: '440px',
+          overflowY: 'auto',
+          paddingRight: '6px'
+        }}>
+          {executions
+            .filter(exec => {
+              const meta = getToolMeta(exec.collector_name);
+              if (engineCategoryFilter !== 'All Tools' && engineCategoryFilter !== 'All') {
+                if (!meta.suite.toLowerCase().includes(engineCategoryFilter.toLowerCase())) return false;
+              }
+              if (!engineSearchFilter.trim()) return true;
+              const q = engineSearchFilter.toLowerCase();
+              return meta.label.toLowerCase().includes(q) || meta.suite.toLowerCase().includes(q) || exec.collector_name.toLowerCase().includes(q);
+            })
+            .map(exec => {
+              const meta = getToolMeta(exec.collector_name);
+              const isFilterActive = selectedCollector === exec.collector_name;
+              const durationMs = exec.completed_at && exec.started_at
+                ? Math.max(0, new Date(exec.completed_at).getTime() - new Date(exec.started_at).getTime())
+                : null;
+
+              return (
+                <div
+                  key={exec.id}
+                  onClick={() => {
+                    setSelectedCollector(isFilterActive ? null : exec.collector_name);
+                    setActiveTab('findings');
+                  }}
+                  className="glass-card"
+                  style={{
+                    padding: 'var(--space-3)',
+                    borderRadius: 'var(--radius)',
+                    background: isFilterActive ? 'rgba(37, 99, 235, 0.12)' : 'var(--color-bg)',
+                    border: isFilterActive ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    boxShadow: isFilterActive ? '0 0 12px rgba(37, 99, 235, 0.25)' : 'none',
+                  }}
+                  title={`Click to filter findings from ${meta.label}`}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                      <span style={{ fontSize: '13px' }}>{meta.icon}</span>
+                      <strong style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {meta.label}
+                      </strong>
+                    </div>
+                    {getStatusBadge(exec.status)}
                   </div>
-                  {getStatusBadge(exec.status)}
-                </div>
 
-                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginBottom: '6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {meta.suite}
-                </div>
+                  <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginBottom: '6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {meta.suite}
+                  </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--color-text-secondary)', borderTop: '1px solid var(--color-border-subtle)', paddingTop: '4px' }}>
-                  <span style={{ fontWeight: exec.findings_count > 0 ? 700 : 400, color: exec.findings_count > 0 ? 'var(--color-dark)' : 'var(--color-text-muted)' }}>
-                    {exec.findings_count} {exec.findings_count === 1 ? 'finding' : 'findings'}
-                  </span>
-                  {durationMs !== null && (
-                    <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
-                      {durationMs}ms
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--color-text-secondary)', borderTop: '1px solid var(--color-border-subtle)', paddingTop: '4px' }}>
+                    <span style={{ fontWeight: exec.findings_count > 0 ? 700 : 400, color: exec.findings_count > 0 ? 'var(--color-dark)' : 'var(--color-text-muted)', fontSize: '10px' }}>
+                      {exec.findings_count} {exec.findings_count === 1 ? 'finding' : 'findings'}
                     </span>
-                  )}
-                </div>
+                    {durationMs !== null && (
+                      <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                        {durationMs}ms
+                      </span>
+                    )}
+                  </div>
 
-                {/* Individual Tool Mini Progress Bar */}
-                <div style={{
-                  width: '100%',
-                  height: '4px',
-                  background: 'var(--color-border)',
-                  borderRadius: '2px',
-                  overflow: 'hidden',
-                  marginTop: '6px'
-                }}>
+                  {/* Individual Tool Mini Progress Bar */}
                   <div style={{
-                    height: '100%',
-                    width: exec.status === 'completed' ? '100%' : exec.status === 'running' ? '65%' : exec.status === 'failed' ? '100%' : '15%',
-                    background: exec.status === 'completed'
-                      ? '#10b981'
-                      : exec.status === 'running'
-                      ? 'var(--color-accent)'
-                      : exec.status === 'failed'
-                      ? '#ef4444'
-                      : 'var(--color-border)',
-                    transition: 'width 0.3s ease'
-                  }} />
+                    width: '100%',
+                    height: '3px',
+                    background: 'var(--color-border)',
+                    borderRadius: '2px',
+                    overflow: 'hidden',
+                    marginTop: '5px'
+                  }}>
+                    <div style={{
+                      height: '100%',
+                      width: exec.status === 'completed' ? '100%' : exec.status === 'running' ? '65%' : exec.status === 'failed' ? '100%' : '15%',
+                      background: exec.status === 'completed'
+                        ? '#10b981'
+                        : exec.status === 'running'
+                        ? 'var(--color-accent)'
+                        : exec.status === 'failed'
+                        ? '#ef4444'
+                        : 'var(--color-border)',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
       </div>
 

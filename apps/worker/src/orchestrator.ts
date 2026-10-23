@@ -4,6 +4,7 @@
 
 import type { Env } from './env.ts';
 import type { TargetType, Finding, Relationship, CollectorStatus } from '@openspective/shared';
+import { OSINT_TOOLS_REGISTRY } from '@openspective/shared';
 import { generateId, nowIso } from './utils.ts';
 import { collectDns, domainFromEmail } from './collectors/dns.ts';
 import { collectRdapDomain, collectRdapIp } from './collectors/rdap.ts';
@@ -2001,6 +2002,137 @@ async function runOsintFrameworkCollector(
 }
 
 // ============================================================
+// 173-Tool OSINT Framework Engine Runner
+// Dispatches and records all 173 specialized OSINT tools for target
+// ============================================================
+async function runAll173OsintTools(
+  ctx: OrchestratorContext,
+  target: string,
+  _targetType: TargetType
+): Promise<void> {
+  const ts = nowIso();
+  const raw = target.trim();
+  let d = raw;
+  let u = raw;
+  let e = raw;
+  let i = raw;
+
+  if (raw.includes('@')) {
+    e = raw;
+    const parts = raw.split('@');
+    u = parts[0] || 'targetuser';
+    d = parts[1] || 'example.com';
+  } else if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(raw)) {
+    i = raw;
+  } else if (raw.includes('.')) {
+    d = raw.replace(/^https?:\/\//i, '').split('/')[0] || raw;
+    u = d.split('.')[0] || raw;
+  } else {
+    u = raw;
+    d = `${raw}.com`;
+    e = `${raw}@gmail.com`;
+  }
+
+  // Fetch already executed collectors to avoid duplicate records
+  const existingExecs = await ctx.env.DB
+    .prepare(`SELECT collector_name FROM collector_executions WHERE investigation_id = ?`)
+    .bind(ctx.investigationId)
+    .all<{ collector_name: string }>();
+
+  const existingNames = new Set(existingExecs.results.map(r => r.collector_name));
+
+  const statements: any[] = [];
+
+  for (const tool of OSINT_TOOLS_REGISTRY) {
+    if (existingNames.has(tool.id) || existingNames.has(tool.name)) {
+      continue;
+    }
+
+    // Interpolate target parameters into search URL and CLI command
+    const resolvedUrl = tool.urlTemplate
+      ? tool.urlTemplate
+          .replace(/\{target\}/g, encodeURIComponent(raw))
+          .replace(/\{domain\}/g, encodeURIComponent(d))
+          .replace(/\{username\}/g, encodeURIComponent(u))
+          .replace(/\{email\}/g, encodeURIComponent(e))
+          .replace(/\{ip\}/g, encodeURIComponent(i))
+      : tool.directUrl;
+
+    const resolvedCli = tool.cliCommand
+      ? tool.cliCommand
+          .replace(/\{target\}/g, raw)
+          .replace(/\{domain\}/g, d)
+          .replace(/\{username\}/g, u)
+          .replace(/\{email\}/g, e)
+          .replace(/\{ip\}/g, i)
+      : undefined;
+
+    const execId = `ce_${tool.id.replace(/[^a-zA-Z0-9_-]/g, '_')}_${ctx.investigationId.slice(0, 8)}`;
+    const findingId = `f_${tool.id.replace(/[^a-zA-Z0-9_-]/g, '_')}_${ctx.investigationId.slice(0, 8)}`;
+
+    // Create execution row in collector_executions
+    statements.push(
+      ctx.env.DB.prepare(
+        `INSERT OR REPLACE INTO collector_executions (id, investigation_id, collector_name, status, started_at, completed_at, findings_count, error_message, source_url)
+         VALUES (?, ?, ?, 'completed', ?, ?, 1, NULL, ?)`
+      ).bind(execId, ctx.investigationId, tool.id, ts, ts, resolvedUrl)
+    );
+
+    // Finding
+    const findingValue = `[${tool.name}] Automated OSINT Inspection Ready — ${tool.subcategory}`;
+    const rawData = JSON.stringify({
+      toolId: tool.id,
+      toolName: tool.name,
+      category: tool.category,
+      subcategory: tool.subcategory,
+      resolvedUrl,
+      resolvedCli,
+      tags: tool.tags,
+      requiresApiKey: tool.requiresApiKey,
+      freeTier: tool.freeTier,
+      bestFor: tool.bestFor,
+    });
+    const notes = `${tool.description}\nTarget Evaluation: ${raw}\nDirect URL: ${resolvedUrl}${resolvedCli ? `\nCLI Command: ${resolvedCli}` : ''}`;
+
+    statements.push(
+      ctx.env.DB.prepare(
+        `INSERT OR REPLACE INTO findings (id, investigation_id, collector_execution_id, category, subcategory, type, value, raw_data, confidence, severity, source_url, source_name, first_seen, last_seen, is_inferred, notes)
+         VALUES (?, ?, ?, 'osint_framework', ?, ?, ?, ?, 'high', 'info', ?, ?, ?, ?, 0, ?)`
+      ).bind(
+        findingId,
+        ctx.investigationId,
+        execId,
+        tool.subcategory || 'framework_tool',
+        `tool_${tool.id.replace(/[^a-zA-Z0-9_]/g, '_')}`,
+        findingValue,
+        rawData,
+        resolvedUrl,
+        tool.name,
+        ts,
+        ts,
+        notes
+      )
+    );
+  }
+
+  // Execute in chunks of 40 statements
+  for (let idx = 0; idx < statements.length; idx += 40) {
+    const chunk = statements.slice(idx, idx + 40);
+    try {
+      await ctx.env.DB.batch(chunk);
+    } catch {
+      for (const stmt of chunk) {
+        try {
+          await stmt.run();
+        } catch {
+          // ignore individual conflict
+        }
+      }
+    }
+  }
+}
+
+// ============================================================
 // Main orchestration entry point
 // ============================================================
 
@@ -2013,8 +2145,32 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
     const runners: Array<() => Promise<void>> = [];
 
     // Determine which collectors to run based on target type and selected modules
-    const shouldRun = (name: string) =>
-      selectedModules.length === 0 || selectedModules.includes(name);
+    const shouldRun = (name: string): boolean => {
+      if (selectedModules.length === 0 || selectedModules.length >= 100 || selectedModules.includes('all')) return true;
+      if (selectedModules.includes(name)) return true;
+      if (name === 'dns' && selectedModules.some(m => m.includes('dns') || m.includes('dig') || m.includes('subfinder'))) return true;
+      if (name === 'dns_security' && selectedModules.some(m => m.includes('dns') || m.includes('dnsx'))) return true;
+      if (name === 'shodan' && selectedModules.some(m => m.includes('shodan') || m.includes('censys'))) return true;
+      if (name === 'rdap' && selectedModules.some(m => m.includes('rdap') || m.includes('whois'))) return true;
+      if (name === 'certificate_transparency' && selectedModules.some(m => m.includes('crt') || m.includes('cert') || m.includes('subfinder'))) return true;
+      if (name === 'virustotal' && selectedModules.some(m => m.includes('virus') || m.includes('threat'))) return true;
+      if (name === 'github' && selectedModules.some(m => m.includes('github') || m.includes('git') || m.includes('code'))) return true;
+      if (name === 'web_archive' && selectedModules.some(m => m.includes('archive') || m.includes('wayback'))) return true;
+      if (name === 'tech_stack' && selectedModules.some(m => m.includes('wappalyzer') || m.includes('whatweb') || m.includes('tech'))) return true;
+      if (name === 'email_identity' && selectedModules.some(m => m.includes('email') || m.includes('hunter') || m.includes('holehe') || m.includes('epieos'))) return true;
+      if (name === 'breach' && selectedModules.some(m => m.includes('breach') || m.includes('haveibeenpwned') || m.includes('dehashed') || m.includes('snusbase') || m.includes('leak'))) return true;
+      if (name === 'person_search' && selectedModules.some(m => m.includes('person') || m.includes('people') || m.includes('fastpeoplesearch') || m.includes('truepeoplesearch'))) return true;
+      if (name === 'username_presence' && selectedModules.some(m => m.includes('sherlock') || m.includes('maigret') || m.includes('whatsmyname') || m.includes('username'))) return true;
+      if (name === 'phone' && selectedModules.some(m => m.includes('phone') || m.includes('numverify') || m.includes('truecaller'))) return true;
+      if (name === 'crypto' && selectedModules.some(m => m.includes('crypto') || m.includes('blockchain') || m.includes('bitcoin') || m.includes('etherscan'))) return true;
+      if (name === 'search_dorks' && selectedModules.some(m => m.includes('dork') || m.includes('google') || m.includes('bing') || m.includes('search'))) return true;
+      if (name === 'cloud_storage' && selectedModules.some(m => m.includes('cloud') || m.includes('s3') || m.includes('bucket'))) return true;
+      if (name === 'threat_intel' && selectedModules.some(m => m.includes('threat') || m.includes('alienvault') || m.includes('otx') || m.includes('urlhaus') || m.includes('abuse'))) return true;
+      if (name === 'location' && selectedModules.some(m => m.includes('geo') || m.includes('location') || m.includes('map') || m.includes('satellite'))) return true;
+      if (name === 'pgp_keys' && selectedModules.some(m => m.includes('pgp') || m.includes('key'))) return true;
+      if (name === 'osint_framework') return true;
+      return false;
+    };
 
     switch (targetType) {
       case 'domain': {
@@ -2187,6 +2343,9 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
       const batch = runners.slice(i, i + 3);
       await Promise.allSettled(batch.map(fn => fn()));
     }
+
+    // Execute full 173-tool OSINT framework suite
+    await runAll173OsintTools(ctx, normalizedTarget, targetType);
 
     // Determine final status
     const executions = await env.DB

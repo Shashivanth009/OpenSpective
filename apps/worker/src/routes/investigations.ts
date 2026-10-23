@@ -16,7 +16,7 @@ import { classifyTarget, validateTargetForType, normalizeTarget } from '../class
 import { getCollectorsForTargetType } from '../collectors/registry.ts';
 import { runInvestigation } from '../orchestrator.ts';
 import { generateId, nowIso } from '../utils.ts';
-import type { TargetType, CreateInvestigationRequest, InvestigationGraph, GraphNode, GraphEdge } from '@openspective/shared';
+import { type TargetType, type CreateInvestigationRequest, type InvestigationGraph, type GraphNode, type GraphEdge, OSINT_TOOLS_REGISTRY } from '@openspective/shared';
 
 type Variables = { user: AuthUser | null };
 
@@ -77,8 +77,8 @@ investigationsRouter.post('/', investigationRateLimit, async (c) => {
   // Determine available modules
   const { available, unavailable } = getCollectorsForTargetType(resolvedType, c.env);
   const selectedModules: string[] = Array.isArray(modules) && modules.length > 0
-    ? modules.filter(m => available.some(a => a.name === m))
-    : available.map(a => a.name);
+    ? modules
+    : [...available.map(a => a.name), ...OSINT_TOOLS_REGISTRY.map(t => t.id)];
 
   // Create investigation record
   const investigationId = generateId('inv');

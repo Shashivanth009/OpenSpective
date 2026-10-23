@@ -1,35 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search, Shield, CheckCircle2, AlertCircle, Sparkles,
   Globe, Mail, User, Network, Building, Link2, ArrowRight, Phone, Coins
 } from 'lucide-react';
+import { OSINT_TOOLS_REGISTRY, OSINT_CATEGORIES, type OsintTool } from '@openspective/shared';
 import * as api from '../api.ts';
-
-const MODULES_CONFIG = [
-  { id: 'certificate_transparency', name: 'Subfinder & crt.sh (Subdomains)', desc: 'Discovers active subdomains, root domains, and historical SSL/TLS certificates via crt.sh CT log streams', types: ['domain', 'email', 'url', 'organization'] },
-  { id: 'username_presence', name: 'Sherlock & WhatsMyName (Profiles)', desc: 'Performs zero-false-positive profile verification across GitHub, GitLab, DockerHub, NPM, Keybase, HackerNews, Mastodon, and 15+ registries', types: ['username', 'person'] },
-  { id: 'email_identity', name: 'theHarvester & Hunter (Email Recon)', desc: 'Discovers verified git commits, real author names, linked GitHub profiles, Gravatar accounts, and handle footprints', types: ['email'] },
-  { id: 'tech_stack', name: 'Wappalyzer & BuiltWith (Tech Stack)', desc: 'Audits HTTP security hygiene (HSTS, CSP, X-Frame-Options) and detects web servers & CDN/WAF defenses', types: ['domain', 'url', 'organization'] },
-  { id: 'web_archive', name: 'Waybackurls & GAU (Historical Archives)', desc: 'Searches Internet Archive CDX index for historical snapshots, first-seen timestamps, and archived endpoints', types: ['domain', 'url', 'organization'] },
-  { id: 'shodan', name: 'Shodan & Censys (Ports & CVEs)', desc: 'Passively maps open network ports, detected software CPEs, and known CVE vulnerabilities without active socket probing', types: ['ip', 'domain'] },
-  { id: 'dns_security', name: 'SecurityHeaders & Defensive DNS Hygiene', desc: 'Audits SPF, DMARC, BIMI, MTA-STS, TLS-RPT, and DNSSEC defenses and grades domain spoofability', types: ['domain', 'email', 'organization'] },
-  { id: 'threat_intel', name: 'Abuse.ch URLhaus & ThreatFox (Threat IOCs)', desc: 'Queries live abuse databases for malware distribution payloads, malicious host reputation, and botnet command & control indicators', types: ['domain', 'ip', 'url', 'organization'] },
-  { id: 'cloud_storage', name: 'S3Scanner & CloudEnum (Cloud Buckets)', desc: 'Enumerates storage bucket naming permutations across Amazon Web Services S3, Google Cloud Storage, and Azure Blobs', types: ['domain', 'organization', 'url'] },
-  { id: 'search_dorks', name: 'Google Dorks & Search Intelligence', desc: 'Compiles and checks targeted search queries across Google, GitHub Code, Shodan, Censys, FOFA, and Pastebin', types: ['domain', 'ip', 'email', 'username', 'url', 'organization', 'person', 'phone'] },
-  { id: 'pgp_keys', name: 'Ubuntu PGP Public Keyserver', desc: 'Queries Ubuntu / SKS PGP keyservers for cryptographic public keys, email identities, and creation timestamps', types: ['email', 'person', 'username', 'organization', 'domain'] },
-  { id: 'dns', name: 'Authoritative DNS (Cloudflare DoH)', desc: 'Retrieves authoritative DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA, CAA) using Cloudflare DNS over HTTPS', types: ['domain', 'email', 'url', 'organization'] },
-  { id: 'rdap', name: 'RDAP & WHOIS (IANA / Verisign)', desc: 'Retrieves authoritative domain and IP registration data from ICANN RDAP and regional internet registries', types: ['domain', 'ip', 'email', 'url'] },
-  { id: 'ipinfo', name: 'IPinfo Geolocation & ASN Mapping', desc: 'Retrieves public IP geolocation, autonomous system numbers (ASN), carrier, and organization route mapping', types: ['ip', 'domain'] },
-  { id: 'github', name: 'GitHub Public Repos & Code Leaks', desc: 'Searches public GitHub repositories, code commits, contributors, and organizational structures', types: ['organization', 'username', 'email', 'domain'] },
-  { id: 'breach', name: 'Have I Been Pwned & Breach Records', desc: 'Checks targets against documented public breach datasets and credential exposure archives', types: ['email', 'domain', 'username'] },
-  { id: 'location', name: 'Bellingcat & OpenStreetMap (GEOINT)', desc: 'Geocodes physical locations, profiles, and commit timezone signatures into coordinates with OpenStreetMap and Google Maps links', types: ['person', 'email', 'username', 'organization', 'ip'] },
-  { id: 'phone', name: 'PhoneInfoga & Telephony Intelligence', desc: 'Analyzes international ITU-T E.164 dialing plans, telecom region, line type (mobile/fixed/toll-free), and OSINT search pivots', types: ['phone'] },
-  { id: 'crypto', name: 'Blockchain & Crypto Forensics', desc: 'Analyzes Bitcoin, Ethereum, Solana, and TRON wallet balances, activity, and transactions', types: ['crypto_wallet', 'person', 'username'] },
-  { id: 'virustotal', name: 'VirusTotal Threat Intel', desc: 'Reputation analysis across 70+ threat intelligence engines (requires key)', types: ['domain', 'ip', 'url', 'email'] },
-  { id: 'person_search', name: 'Public Person & Entity Search', desc: 'GitHub full name matches, Wikipedia articles, Wikidata knowledge graph, HackerNews mentions', types: ['person'] },
-  { id: 'osint_framework', name: 'OSINT Framework 110+ Toolkit Suite', desc: 'Executes cross-engine public intelligence pivots, PGP keys, S3 cloud enumeration, Abuse.ch, and public records', types: ['domain', 'ip', 'email', 'username', 'url', 'organization', 'person', 'phone'] },
-];
 
 export default function InvestigatePage() {
   const navigate = useNavigate();
@@ -40,17 +16,19 @@ export default function InvestigatePage() {
 
   const [target, setTarget] = useState(initialQuery);
   const [targetType, setTargetType] = useState<string>(initialType);
+  const [selectedCategory, setSelectedCategory] = useState<string>('All Tools');
+  const [toolSearch, setToolSearch] = useState('');
+
+  // ALL 173 OSINT TOOLS PRE-SELECTED BY DEFAULT AT START
   const [selectedModules, setSelectedModules] = useState<string[]>(() => {
-    const all = [
-      'certificate_transparency', 'username_presence', 'email_identity', 'tech_stack',
-      'web_archive', 'shodan', 'dns_security', 'threat_intel', 'cloud_storage',
-      'search_dorks', 'pgp_keys', 'dns', 'rdap', 'ipinfo', 'github', 'breach', 'location', 'phone', 'crypto', 'person_search', 'osint_framework'
-    ];
-    if (initialModule && all.includes(initialModule)) {
-      return all;
-    }
-    return all;
+    return OSINT_TOOLS_REGISTRY.map(t => t.id);
   });
+
+  useEffect(() => {
+    if (initialModule && !selectedModules.includes(initialModule)) {
+      setSelectedModules((prev) => [...prev, initialModule]);
+    }
+  }, [initialModule]);
   const [enableAi, setEnableAi] = useState(true);
   const [loading, setLoading] = useState(false);
   const [launchProgress, setLaunchProgress] = useState(0);
@@ -92,6 +70,35 @@ export default function InvestigatePage() {
     } else {
       setSelectedModules([...selectedModules, modId]);
     }
+  };
+
+  const filteredTools = useMemo(() => {
+    return OSINT_TOOLS_REGISTRY.filter((tool: OsintTool) => {
+      const matchesCategory = selectedCategory === 'All Tools' || tool.category === selectedCategory;
+      if (!matchesCategory) return false;
+      if (!toolSearch.trim()) return true;
+      const q = toolSearch.toLowerCase();
+      return (
+        tool.name.toLowerCase().includes(q) ||
+        tool.description.toLowerCase().includes(q) ||
+        tool.subcategory.toLowerCase().includes(q) ||
+        tool.tags.some(t => t.toLowerCase().includes(q)) ||
+        (tool.bestFor && tool.bestFor.toLowerCase().includes(q))
+      );
+    });
+  }, [selectedCategory, toolSearch]);
+
+  const selectAllTools = () => {
+    setSelectedModules(OSINT_TOOLS_REGISTRY.map(t => t.id));
+  };
+
+  const selectFilteredTools = () => {
+    const ids = new Set([...selectedModules, ...filteredTools.map(t => t.id)]);
+    setSelectedModules(Array.from(ids));
+  };
+
+  const clearAllTools = () => {
+    setSelectedModules([]);
   };
 
   const handleLaunch = async (e: React.FormEvent) => {
@@ -239,63 +246,165 @@ export default function InvestigatePage() {
         </div>
 
         {/* Step 2: Collector Selection */}
-        <div className="card" style={{ marginBottom: 'var(--space-6)', padding: 'var(--space-6)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-            <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-              <Shield size={20} style={{ color: 'var(--color-accent)' }} /> 2. Intelligence Collectors
-            </h2>
-            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+        <div className="card glass-panel" style={{ marginBottom: 'var(--space-6)', padding: 'var(--space-6)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+            <div>
+              <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <Shield size={20} style={{ color: 'var(--color-accent)' }} /> 2. OSINT Reconnaissance Framework Suite
+              </h2>
+              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', margin: '4px 0 0 0' }}>
+                All 173 specialized OSINT intelligence engines and passive collectors are selected by default for maximum depth.
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+              <span className="badge badge-accent" style={{ fontWeight: 700, padding: '4px 10px', fontSize: '12px' }}>
+                {selectedModules.length} / {OSINT_TOOLS_REGISTRY.length} Selected
+              </span>
               <button
                 type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => setSelectedModules(MODULES_CONFIG.map(m => m.id))}
+                className="btn btn-secondary btn-sm"
+                onClick={selectAllTools}
               >
-                Select All
+                Select All ({OSINT_TOOLS_REGISTRY.length})
               </button>
+              {toolSearch || selectedCategory !== 'All Tools' ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={selectFilteredTools}
+                >
+                  Select Filtered ({filteredTools.length})
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
-                onClick={() => setSelectedModules([])}
+                onClick={clearAllTools}
               >
                 Clear
               </button>
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--space-3)' }}>
-            {MODULES_CONFIG.map((mod) => {
-              const isSelected = selectedModules.includes(mod.id);
-              const isApplicable = activeTargetType === 'unknown' || activeTargetType === 'auto' || mod.types.includes(activeTargetType);
+          {/* Search & Category Filter Controls */}
+          <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 260px', position: 'relative' }}>
+              <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+              <input
+                type="text"
+                className="input"
+                style={{ paddingLeft: '36px', height: '38px', fontSize: 'var(--text-xs)' }}
+                placeholder="Filter 173 tools by name, category, CLI command, or tag..."
+                value={toolSearch}
+                onChange={(e) => setToolSearch(e.target.value)}
+              />
+              {toolSearch && (
+                <button
+                  type="button"
+                  onClick={() => setToolSearch('')}
+                  style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '12px' }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <div style={{ flex: '1 1 220px' }}>
+              <select
+                className="input"
+                style={{ height: '38px', fontSize: 'var(--text-xs)' }}
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+              >
+                {OSINT_CATEGORIES.map((cat) => {
+                  const count = cat === 'All Tools' 
+                    ? OSINT_TOOLS_REGISTRY.length 
+                    : OSINT_TOOLS_REGISTRY.filter(t => t.category === cat).length;
+                  return (
+                    <option key={cat} value={cat}>
+                      {cat} ({count})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
+
+          {/* Tools Grid with Smooth Max Height */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: 'var(--space-3)',
+            maxHeight: '440px',
+            overflowY: 'auto',
+            paddingRight: '6px',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius)',
+            padding: 'var(--space-3)',
+            background: 'var(--color-bg)'
+          }}>
+            {filteredTools.map((tool: OsintTool) => {
+              const isSelected = selectedModules.includes(tool.id);
 
               return (
                 <div
-                  key={mod.id}
-                  onClick={() => toggleModule(mod.id)}
+                  key={tool.id}
+                  onClick={() => toggleModule(tool.id)}
+                  className="glass-card"
                   style={{
-                    padding: 'var(--space-4)',
+                    padding: 'var(--space-3) var(--space-4)',
                     borderRadius: 'var(--radius)',
                     border: `1.5px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                    background: isSelected ? 'var(--color-bg-secondary)' : 'var(--color-surface)',
+                    background: isSelected ? 'rgba(37, 99, 235, 0.08)' : 'var(--color-surface)',
                     cursor: 'pointer',
-                    transition: 'all var(--transition-fast)',
-                    opacity: isApplicable ? 1 : 0.6,
+                    transition: 'all 0.15s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-1)' }}>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => {}} // handled by parent div
-                      style={{ accentColor: 'var(--color-accent)' }}
-                    />
-                    <strong style={{ fontSize: 'var(--text-sm)', color: 'var(--color-dark)' }}>{mod.name}</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {}} // handled by card click
+                        style={{ accentColor: 'var(--color-accent)', width: '15px', height: '15px', cursor: 'pointer' }}
+                      />
+                      <strong style={{ fontSize: 'var(--text-sm)', color: 'var(--color-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {tool.name}
+                      </strong>
+                    </div>
+                    <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', background: 'var(--color-bg)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}>
+                      {tool.subcategory}
+                    </span>
                   </div>
-                  <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', margin: 0, paddingLeft: '22px' }}>
-                    {mod.desc}
+
+                  <p style={{
+                    fontSize: '11px',
+                    color: 'var(--color-text-secondary)',
+                    margin: '2px 0 0 23px',
+                    lineHeight: 1.35,
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden'
+                  }}>
+                    {tool.description}
                   </p>
+
+                  {tool.bestFor && (
+                    <div style={{ paddingLeft: '23px', fontSize: '10px', color: 'var(--color-accent)', fontStyle: 'italic', marginTop: '2px' }}>
+                      ★ {tool.bestFor}
+                    </div>
+                  )}
                 </div>
               );
             })}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-3)', fontSize: '12px', color: 'var(--color-text-muted)' }}>
+            <span>Showing {filteredTools.length} of {OSINT_TOOLS_REGISTRY.length} tools ({selectedCategory})</span>
+            <span><strong>{selectedModules.length}</strong> selected for target execution</span>
           </div>
         </div>
 

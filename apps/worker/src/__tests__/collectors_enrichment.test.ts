@@ -160,13 +160,129 @@ describe('Enrichment Collectors Unit Tests', () => {
     });
   });
 
+  describe('Strict Username Presence Validation', () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it('rejects HackerNews soft-404 with "No such user."', async () => {
+      const { checkUsernamePresence } = await import('../collectors/person.ts');
+      globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('news.ycombinator.com')) {
+          return Promise.resolve({
+            status: 200,
+            text: async () => '<html><body>No such user.</body></html>',
+          } as any);
+        }
+        return Promise.resolve({
+          status: 404,
+          text: async () => '',
+        } as any);
+      });
+
+      const results = await checkUsernamePresence('nonexistentuser123');
+      const hn = results.find(r => r.platform === 'HackerNews');
+      expect(hn).toBeDefined();
+      expect(hn?.status).toBe('not_found');
+      expect(hn?.verified).toBe(false);
+    });
+
+    it('validates genuine GitHub and GitLab profiles with proof', async () => {
+      const { checkUsernamePresence } = await import('../collectors/person.ts');
+      globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('api.github.com/users/octocat')) {
+          return Promise.resolve({
+            status: 200,
+            text: async () => JSON.stringify({
+              login: 'octocat',
+              id: 583231,
+              name: 'The Octocat',
+              public_repos: 8,
+              bio: 'GitHub mascot',
+              avatar_url: 'https://avatars.githubusercontent.com/u/583231',
+            }),
+          } as any);
+        }
+        if (url.includes('gitlab.com/api/v4/users')) {
+          return Promise.resolve({
+            status: 200,
+            text: async () => JSON.stringify([
+              { id: 12345, username: 'octocat', name: 'Octocat' },
+            ]),
+          } as any);
+        }
+        return Promise.resolve({
+          status: 404,
+          text: async () => '',
+        } as any);
+      });
+
+      const results = await checkUsernamePresence('octocat');
+      const gh = results.find(r => r.platform === 'GitHub');
+      expect(gh?.status).toBe('found');
+      expect(gh?.verified).toBe(true);
+      expect(gh?.verificationProof).toContain('Verified GitHub User ID');
+
+      const gl = results.find(r => r.platform === 'GitLab');
+      expect(gl?.status).toBe('found');
+      expect(gl?.verified).toBe(true);
+      expect(gl?.verificationProof).toContain('Verified GitLab Account ID');
+    });
+  });
+
+  describe('OSINT Framework Public Intelligence', () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it('generates rich search dorks across documents, secrets, and auth portals', async () => {
+      const { generateOsintFrameworkDorks, generateCloudBucketPermutations } = await import('../collectors/osint_framework.ts');
+      const dorks = generateOsintFrameworkDorks('example.com', 'domain');
+      expect(dorks.length).toBeGreaterThanOrEqual(8);
+      expect(dorks.some(d => d.category === 'sensitive_documents')).toBe(true);
+      expect(dorks.some(d => d.category === 'exposed_secrets')).toBe(true);
+      expect(dorks.some(d => d.category === 'auth_portals')).toBe(true);
+      expect(dorks.some(d => d.platform === 'GitHub')).toBe(true);
+      expect(dorks.some(d => d.platform === 'Shodan')).toBe(true);
+
+      const buckets = generateCloudBucketPermutations('example.com');
+      expect(buckets.length).toBeGreaterThan(0);
+      expect(buckets.some(b => b.provider.includes('Amazon Web Services'))).toBe(true);
+    });
+
+    it('parses Ubuntu PGP keyserver responses into structured key records', async () => {
+      const { queryPgpKeyserver } = await import('../collectors/osint_framework.ts');
+      const fakePksResponse = `info:1:2
+pub:A1B2C3D4E5F60718:1:4096:1609459200::
+uid:Satoshi Nakamoto <satoshin@gmx.com>
+fpr:11223344556677889900AABBCCDDEEFF00112233`;
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () => fakePksResponse,
+      } as any);
+
+      const keys = await queryPgpKeyserver('satoshin@gmx.com');
+      expect(keys.length).toBe(1);
+      expect(keys[0].keyId).toBe('A1B2C3D4E5F60718');
+      expect(keys[0].identities[0]).toContain('Satoshi Nakamoto');
+      expect(keys[0].algorithm).toBe('RSA');
+      expect(keys[0].bitLength).toBe(4096);
+    });
+  });
+
   describe('Registry Verification', () => {
-    it('registers shodan, phone, and dns_security in the collector catalog', () => {
+    it('registers shodan, phone, dns_security, and osint_framework in the collector catalog', () => {
       const all = getAllCollectors();
       const names = all.map(c => c.name);
       expect(names).toContain('shodan');
       expect(names).toContain('phone');
       expect(names).toContain('dns_security');
+      expect(names).toContain('osint_framework');
     });
 
     it('assigns phone collector to phone target type', () => {
@@ -179,6 +295,14 @@ describe('Enrichment Collectors Unit Tests', () => {
       expect(ipCollectors).toContain('shodan');
       const domainCollectors = getCollectorsForTargetType('domain').available.map(c => c.name);
       expect(domainCollectors).toContain('shodan');
+    });
+
+    it('assigns osint_framework across all target types', () => {
+      const types = ['domain', 'ip', 'email', 'username', 'phone', 'person'] as const;
+      for (const t of types) {
+        const collectors = getCollectorsForTargetType(t).available.map(c => c.name);
+        expect(collectors).toContain('osint_framework');
+      }
     });
   });
 });

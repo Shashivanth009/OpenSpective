@@ -206,6 +206,15 @@ export const COLLECTORS: CollectorDefinition[] = [
     limitations: ['Audits public DNS records via Cloudflare DoH.'],
     isConfigured: () => true,
   },
+  {
+    name: 'osint_framework',
+    displayName: 'OSINT Framework & Deep Search Engine',
+    description: 'Gathers public PGP key fingerprints, queries Abuse.ch URLhaus malware IOCs, tests cloud storage buckets, and compiles targeted search engine dorks.',
+    targetTypes: ['domain', 'ip', 'email', 'username', 'url', 'organization', 'person', 'phone'],
+    requiresCredentials: false,
+    limitations: ['Synthesizes open-source intelligence methods without active exploitation or packet injection.'],
+    isConfigured: () => true,
+  },
 ];
 
 // Get collectors applicable to a target type

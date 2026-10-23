@@ -315,7 +315,7 @@ interface PlatformDefinition {
   url: string;
   checkUrl?: string;
   userKey: string;
-  customCheck: (resp: Response, bodyText: string, username: string) => Promise<{ found: boolean; proof?: string; location?: string; bio?: string; name?: string; avatar?: string } | boolean>;
+  customCheck: (resp: Response, bodyText: string, username: string) => Promise<{ found: boolean; proof?: string | null; location?: string | null; bio?: string | null; name?: string | null; avatar?: string | null } | boolean>;
 }
 
 export const USERNAME_PLATFORMS: PlatformDefinition[] = [
@@ -749,7 +749,7 @@ export const USERNAME_PLATFORMS: PlatformDefinition[] = [
           return {
             found: true,
             proof: `Verified Public Telegram Channel / User Contact`,
-            name: titleMatch ? titleMatch[1].trim() : null,
+            name: titleMatch && titleMatch[1] ? titleMatch[1].trim() : null,
           };
         }
       }
@@ -820,28 +820,6 @@ export async function checkUsernamePresence(username: string): Promise<UsernameC
         url: targetUrl,
         status: 'unknown' as const,
         verified: false,
-        collectedAt,
-      };
-    }
-  });
-
-      return {
-        platform: platform.name,
-        category: platform.category,
-        url: targetUrl,
-        status,
-        location,
-        bio,
-        displayName,
-        avatarUrl,
-        collectedAt,
-      };
-    } catch {
-      return {
-        platform: platform.name,
-        category: platform.category,
-        url: targetUrl,
-        status: 'unknown' as const,
         collectedAt,
       };
     }

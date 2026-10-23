@@ -300,6 +300,8 @@ export interface UsernameCheckResult {
   category: 'developer' | 'social' | 'community' | 'creative' | 'gaming' | 'audio' | 'finance';
   url: string;
   status: 'found' | 'not_found' | 'unknown';
+  verified: boolean;
+  verificationProof?: string | null;
   location?: string | null;
   bio?: string | null;
   displayName?: string | null;
@@ -313,43 +315,285 @@ interface PlatformDefinition {
   url: string;
   checkUrl?: string;
   userKey: string;
-  customCheck?: (resp: Response, bodyText: string) => Promise<{ found: boolean; location?: string; bio?: string; name?: string; avatar?: string } | boolean>;
+  customCheck: (resp: Response, bodyText: string, username: string) => Promise<{ found: boolean; proof?: string; location?: string; bio?: string; name?: string; avatar?: string } | boolean>;
 }
 
 export const USERNAME_PLATFORMS: PlatformDefinition[] = [
   // Developer & Coding
-  { name: 'GitHub', category: 'developer', url: 'https://github.com/{user}', userKey: 'github' },
-  { name: 'GitLab', category: 'developer', url: 'https://gitlab.com/{user}', userKey: 'gitlab' },
-  { name: 'Bitbucket', category: 'developer', url: 'https://bitbucket.org/{user}/', userKey: 'bitbucket' },
+  {
+    name: 'GitHub',
+    category: 'developer',
+    url: 'https://github.com/{user}',
+    checkUrl: 'https://api.github.com/users/{user}',
+    userKey: 'github',
+    customCheck: async (resp, text, u) => {
+      if (resp.status === 200) {
+        try {
+          const d = JSON.parse(text);
+          if (d.login && d.login.toLowerCase() === u.toLowerCase()) {
+            return {
+              found: true,
+              proof: `Verified GitHub User ID ${d.id} (${d.public_repos ?? 0} public repos)`,
+              name: d.name || d.login,
+              bio: d.bio || null,
+              location: d.location || null,
+              avatar: d.avatar_url || null,
+            };
+          }
+        } catch {
+          // fall through
+        }
+      }
+      return false;
+    },
+  },
+  {
+    name: 'GitLab',
+    category: 'developer',
+    url: 'https://gitlab.com/{user}',
+    checkUrl: 'https://gitlab.com/api/v4/users?username={user}',
+    userKey: 'gitlab',
+    customCheck: async (resp, text, u) => {
+      if (resp.status === 200) {
+        try {
+          const arr = JSON.parse(text);
+          if (Array.isArray(arr) && arr.length > 0) {
+            const match = arr.find((item: any) => item.username?.toLowerCase() === u.toLowerCase());
+            if (match) {
+              return {
+                found: true,
+                proof: `Verified GitLab Account ID ${match.id}`,
+                name: match.name || match.username,
+                avatar: match.avatar_url || null,
+                bio: match.bio || null,
+                location: match.location || null,
+              };
+            }
+          }
+        } catch {
+          // fall through
+        }
+      }
+      return false;
+    },
+  },
+  {
+    name: 'Bitbucket',
+    category: 'developer',
+    url: 'https://bitbucket.org/{user}/',
+    checkUrl: 'https://api.bitbucket.org/2.0/users/{user}',
+    userKey: 'bitbucket',
+    customCheck: async (resp, text) => {
+      if (resp.status === 200) {
+        try {
+          const d = JSON.parse(text);
+          if (d.uuid && (d.nickname || d.display_name)) {
+            return {
+              found: true,
+              proof: `Verified Bitbucket Account UUID ${d.uuid}`,
+              name: d.display_name || d.nickname,
+              avatar: d.links?.avatar?.href || null,
+            };
+          }
+        } catch {
+          // fall through
+        }
+      }
+      return false;
+    },
+  },
+  {
+    name: 'HackerNews',
+    category: 'developer',
+    url: 'https://news.ycombinator.com/user?id={user}',
+    userKey: 'hn',
+    customCheck: async (resp, text) => {
+      if (resp.status === 200) {
+        // HackerNews returns 200 with "No such user." if absent!
+        if (text.includes('No such user.')) return false;
+        if (text.includes('karma:') || text.includes('created:')) {
+          const karmaMatch = text.match(/karma:\s*<\/td><td>(\d+)/i);
+          const karma = karmaMatch ? karmaMatch[1] : 'active';
+          return {
+            found: true,
+            proof: `Verified HackerNews Account (Karma: ${karma})`,
+          };
+        }
+      }
+      return false;
+    },
+  },
   {
     name: 'DockerHub',
     category: 'developer',
     url: 'https://hub.docker.com/u/{user}',
     checkUrl: 'https://hub.docker.com/v2/users/{user}/',
     userKey: 'dockerhub',
-    customCheck: async (resp, text) => {
+    customCheck: async (resp, text, u) => {
       if (resp.status === 200) {
         try {
           const d = JSON.parse(text);
-          return { found: true, name: d.full_name || d.username, bio: d.location || null, location: d.location || null };
+          if (d.id && d.username && d.username.toLowerCase() === u.toLowerCase()) {
+            return {
+              found: true,
+              proof: `Verified DockerHub Namespace ID ${d.id}`,
+              name: d.full_name || d.username,
+              location: d.location || null,
+            };
+          }
         } catch {
-          return true;
+          // fall through
         }
       }
       return false;
     },
   },
-  { name: 'HackerNews', category: 'developer', url: 'https://news.ycombinator.com/user?id={user}', userKey: 'hn' },
-  { name: 'NPM', category: 'developer', url: 'https://www.npmjs.com/~{user}', userKey: 'npm' },
-  { name: 'PyPI', category: 'developer', url: 'https://pypi.org/user/{user}/', userKey: 'pypi' },
-  { name: 'Keybase', category: 'developer', url: 'https://keybase.io/{user}', userKey: 'keybase' },
-  { name: 'DEV.to', category: 'developer', url: 'https://dev.to/{user}', userKey: 'devto' },
-  { name: 'Hashnode', category: 'developer', url: 'https://hashnode.com/@{user}', userKey: 'hashnode' },
-  { name: 'LeetCode', category: 'developer', url: 'https://leetcode.com/{user}/', userKey: 'leetcode' },
-  { name: 'Codeforces', category: 'developer', url: 'https://codeforces.com/profile/{user}', userKey: 'codeforces' },
-  { name: 'Replit', category: 'developer', url: 'https://replit.com/@{user}', userKey: 'replit' },
-  { name: 'Kaggle', category: 'developer', url: 'https://www.kaggle.com/{user}', userKey: 'kaggle' },
-  { name: 'HuggingFace', category: 'developer', url: 'https://huggingface.co/{user}', userKey: 'huggingface' },
+  {
+    name: 'NPM',
+    category: 'developer',
+    url: 'https://www.npmjs.com/~{user}',
+    checkUrl: 'https://registry.npmjs.org/-/v1/search?text=maintainer:{user}&size=1',
+    userKey: 'npm',
+    customCheck: async (resp, text, u) => {
+      if (resp.status === 200) {
+        try {
+          const d = JSON.parse(text);
+          if (typeof d.total === 'number' && d.total > 0) {
+            return {
+              found: true,
+              proof: `Verified NPM Package Maintainer (${d.total} published packages)`,
+            };
+          }
+        } catch {
+          // fallback to web
+        }
+      }
+      return false;
+    },
+  },
+  {
+    name: 'PyPI',
+    category: 'developer',
+    url: 'https://pypi.org/user/{user}/',
+    userKey: 'pypi',
+    customCheck: async (resp, text, u) => {
+      if (resp.status === 200 && !text.includes('Page Not Found') && !text.includes('404')) {
+        if (text.toLowerCase().includes(u.toLowerCase())) {
+          return {
+            found: true,
+            proof: `Verified PyPI Package Author Profile`,
+          };
+        }
+      }
+      return false;
+    },
+  },
+  {
+    name: 'Keybase',
+    category: 'developer',
+    url: 'https://keybase.io/{user}',
+    checkUrl: 'https://keybase.io/_/api/1.0/user/lookup.json?usernames={user}',
+    userKey: 'keybase',
+    customCheck: async (resp, text) => {
+      if (resp.status === 200) {
+        try {
+          const d = JSON.parse(text);
+          if (d.status?.code === 0 && Array.isArray(d.them) && d.them.length > 0 && d.them[0] !== null) {
+            const usr = d.them[0];
+            return {
+              found: true,
+              proof: `Verified Keybase Cryptographic Identity ID ${usr.id}`,
+              name: usr.profile?.full_name || usr.basics?.username,
+              bio: usr.profile?.bio || null,
+              location: usr.profile?.location || null,
+            };
+          }
+        } catch {
+          // fall through
+        }
+      }
+      return false;
+    },
+  },
+  {
+    name: 'DEV.to',
+    category: 'developer',
+    url: 'https://dev.to/{user}',
+    checkUrl: 'https://dev.to/api/users/by_username?url={user}',
+    userKey: 'devto',
+    customCheck: async (resp, text, u) => {
+      if (resp.status === 200) {
+        try {
+          const d = JSON.parse(text);
+          if (d.username && d.username.toLowerCase() === u.toLowerCase()) {
+            return {
+              found: true,
+              proof: `Verified DEV.to Community Author ID ${d.id}`,
+              name: d.name || d.username,
+              bio: d.summary || null,
+              location: d.location || null,
+              avatar: d.profile_image || null,
+            };
+          }
+        } catch {
+          // fall through
+        }
+      }
+      return false;
+    },
+  },
+  {
+    name: 'Codeforces',
+    category: 'developer',
+    url: 'https://codeforces.com/profile/{user}',
+    checkUrl: 'https://codeforces.com/api/user.info?handles={user}',
+    userKey: 'codeforces',
+    customCheck: async (resp, text) => {
+      if (resp.status === 200) {
+        try {
+          const d = JSON.parse(text);
+          if (d.status === 'OK' && Array.isArray(d.result) && d.result.length > 0) {
+            const u = d.result[0];
+            return {
+              found: true,
+              proof: `Verified Codeforces Competitive Programmer (Rank: ${u.rank || 'Active'}, Rating: ${u.rating || 'N/A'})`,
+              name: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.handle,
+              avatar: u.titlePhoto || null,
+              location: [u.city, u.country].filter(Boolean).join(', ') || null,
+            };
+          }
+        } catch {
+          // fall through
+        }
+      }
+      return false;
+    },
+  },
+  {
+    name: 'HuggingFace',
+    category: 'developer',
+    url: 'https://huggingface.co/{user}',
+    checkUrl: 'https://huggingface.co/api/users/{user}/overview',
+    userKey: 'huggingface',
+    customCheck: async (resp, text, u) => {
+      if (resp.status === 200) {
+        try {
+          const d = JSON.parse(text);
+          if (d.user && d.user.toLowerCase() === u.toLowerCase()) {
+            return {
+              found: true,
+              proof: `Verified Hugging Face Machine Learning Profile`,
+              name: d.fullname || d.user,
+              avatar: d.avatarUrl || null,
+            };
+          }
+        } catch {
+          // fall through
+        }
+      }
+      return false;
+    },
+  },
 
   // Social & Community
   {
@@ -362,34 +606,89 @@ export const USERNAME_PLATFORMS: PlatformDefinition[] = [
       if (resp.status === 200) {
         try {
           const d = JSON.parse(text);
-          return d.kind === 't2' && !d.data?.is_suspended;
+          if (d.kind === 't2' && d.data && !d.data.is_suspended) {
+            return {
+              found: true,
+              proof: `Verified Reddit User (Karma: ${d.data.total_karma ?? 0})`,
+              name: d.data.name,
+              avatar: d.data.icon_img?.split('?')[0] || null,
+            };
+          }
         } catch {
-          return false;
+          // fall through
         }
       }
       return false;
     },
   },
-  { name: 'Medium', category: 'social', url: 'https://medium.com/@{user}', userKey: 'medium' },
-  { name: 'Substack', category: 'social', url: 'https://{user}.substack.com', userKey: 'substack' },
-  { name: 'Mastodon', category: 'social', url: 'https://mastodon.social/@{user}', userKey: 'mastodon' },
-  { name: 'Pinterest', category: 'social', url: 'https://www.pinterest.com/{user}/', userKey: 'pinterest' },
-  { name: 'Linktree', category: 'social', url: 'https://linktr.ee/{user}', userKey: 'linktree' },
-  { name: 'ProductHunt', category: 'community', url: 'https://www.producthunt.com/@{user}', userKey: 'producthunt' },
-  { name: 'BuyMeACoffee', category: 'finance', url: 'https://www.buymeacoffee.com/{user}', userKey: 'buymeacoffee' },
-  { name: 'Telegram', category: 'social', url: 'https://t.me/{user}', userKey: 'telegram' },
-
-  // Creative & Design
-  { name: 'Behance', category: 'creative', url: 'https://www.behance.net/{user}', userKey: 'behance' },
-  { name: 'Dribbble', category: 'creative', url: 'https://dribbble.com/{user}', userKey: 'dribbble' },
-  { name: 'Flickr', category: 'creative', url: 'https://www.flickr.com/people/{user}', userKey: 'flickr' },
-  { name: 'Vimeo', category: 'creative', url: 'https://vimeo.com/{user}', userKey: 'vimeo' },
-
-  // Audio & Media
-  { name: 'SoundCloud', category: 'audio', url: 'https://soundcloud.com/{user}', userKey: 'soundcloud' },
-  { name: 'Spotify', category: 'audio', url: 'https://open.spotify.com/user/{user}', userKey: 'spotify' },
-
-  // Gaming & Chess
+  {
+    name: 'Medium',
+    category: 'social',
+    url: 'https://medium.com/@{user}',
+    checkUrl: 'https://medium.com/feed/@{user}',
+    userKey: 'medium',
+    customCheck: async (resp, text) => {
+      if (resp.status === 200 && text.includes('<rss') && text.includes('<title>')) {
+        const titleMatch = text.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) || text.match(/<title>(.*?)<\/title>/i);
+        const title = titleMatch ? titleMatch[1] : null;
+        return {
+          found: true,
+          proof: `Verified Medium Publication RSS Feed (${title || 'Active'})`,
+          name: title,
+        };
+      }
+      return false;
+    },
+  },
+  {
+    name: 'Substack',
+    category: 'social',
+    url: 'https://{user}.substack.com',
+    checkUrl: 'https://{user}.substack.com/api/v1/archive?sort=new&limit=1',
+    userKey: 'substack',
+    customCheck: async (resp, text) => {
+      if (resp.status === 200) {
+        try {
+          const arr = JSON.parse(text);
+          if (Array.isArray(arr)) {
+            return {
+              found: true,
+              proof: `Verified Substack Newsletter Publication`,
+            };
+          }
+        } catch {
+          // fall through
+        }
+      }
+      return false;
+    },
+  },
+  {
+    name: 'Mastodon',
+    category: 'social',
+    url: 'https://mastodon.social/@{user}',
+    checkUrl: 'https://mastodon.social/api/v1/accounts/lookup?acct={user}',
+    userKey: 'mastodon',
+    customCheck: async (resp, text) => {
+      if (resp.status === 200) {
+        try {
+          const d = JSON.parse(text);
+          if (d.id && d.username) {
+            return {
+              found: true,
+              proof: `Verified Mastodon Fediverse Profile ID ${d.id}`,
+              name: d.display_name || d.username,
+              bio: d.note ? d.note.replace(/<[^>]+>/g, '') : null,
+              avatar: d.avatar || null,
+            };
+          }
+        } catch {
+          // fall through
+        }
+      }
+      return false;
+    },
+  },
   {
     name: 'Chess.com',
     category: 'gaming',
@@ -400,14 +699,17 @@ export const USERNAME_PLATFORMS: PlatformDefinition[] = [
       if (resp.status === 200) {
         try {
           const d = JSON.parse(text);
-          return {
-            found: true,
-            name: d.name || d.username,
-            location: d.location || null,
-            avatar: d.avatar || null,
-          };
+          if (d.player_id && d.username) {
+            return {
+              found: true,
+              proof: `Verified Chess.com Player ID ${d.player_id}`,
+              name: d.name || d.username,
+              location: d.location || null,
+              avatar: d.avatar || null,
+            };
+          }
         } catch {
-          return true;
+          // fall through
         }
       }
       return false;
@@ -420,7 +722,36 @@ export const USERNAME_PLATFORMS: PlatformDefinition[] = [
     userKey: 'steam',
     customCheck: async (resp, text) => {
       if (resp.status === 200) {
-        return !text.includes('The specified profile could not be found');
+        if (!text.includes('The specified profile could not be found') && (text.includes('actual_persona_name') || text.includes('playerAvatar'))) {
+          const personaMatch = text.match(/<span class="actual_persona_name">([^<]+)<\/span>/i);
+          return {
+            found: true,
+            proof: `Verified Steam Community Profile`,
+            name: personaMatch ? personaMatch[1] : null,
+          };
+        }
+      }
+      return false;
+    },
+  },
+  {
+    name: 'Telegram',
+    category: 'social',
+    url: 'https://t.me/{user}',
+    userKey: 'telegram',
+    customCheck: async (resp, text) => {
+      if (resp.status === 200) {
+        const hasExtra = text.includes('tgme_page_extra') || text.includes('tgme_page_description');
+        const hasAction = text.includes('tgme_action_button_new') && text.includes('Send Message');
+        const notFound = text.includes('If you have Telegram, you can view and join') || text.includes('User not found');
+        if ((hasExtra || hasAction) && !notFound) {
+          const titleMatch = text.match(/<div class="tgme_page_title"[^>]*>([^<]+)<\/div>/i);
+          return {
+            found: true,
+            proof: `Verified Public Telegram Channel / User Contact`,
+            name: titleMatch ? titleMatch[1].trim() : null,
+          };
+        }
       }
       return false;
     },
@@ -439,38 +770,60 @@ export async function checkUsernamePresence(username: string): Promise<UsernameC
       const resp = await fetch(queryUrl, {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
-        redirect: 'follow',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml,application/json',
+          Accept: 'application/json,text/html,application/xhtml+xml',
         },
       });
 
-      let status: UsernameCheckResult['status'] = 'unknown';
+      let status: UsernameCheckResult['status'] = 'not_found';
+      let verified = false;
+      let verificationProof: string | null = null;
       let location: string | null = null;
       let bio: string | null = null;
       let displayName: string | null = null;
       let avatarUrl: string | null = null;
 
-      if (platform.customCheck) {
-        const text = await resp.text().catch(() => '');
-        const checkResult = await platform.customCheck(resp, text);
-        if (typeof checkResult === 'object' && checkResult !== null) {
-          status = checkResult.found ? 'found' : 'not_found';
-          location = checkResult.location ?? null;
-          bio = checkResult.bio ?? null;
-          displayName = checkResult.name ?? null;
-          avatarUrl = checkResult.avatar ?? null;
-        } else {
-          status = checkResult ? 'found' : 'not_found';
-        }
+      const text = await resp.text().catch(() => '');
+      const checkResult = await platform.customCheck(resp, text, username);
+
+      if (typeof checkResult === 'object' && checkResult !== null) {
+        status = checkResult.found ? 'found' : 'not_found';
+        verified = checkResult.found;
+        verificationProof = checkResult.proof ?? null;
+        location = checkResult.location ?? null;
+        bio = checkResult.bio ?? null;
+        displayName = checkResult.name ?? null;
+        avatarUrl = checkResult.avatar ?? null;
       } else {
-        if (resp.status === 200) {
-          status = 'found';
-        } else if (resp.status === 404) {
-          status = 'not_found';
-        }
+        status = checkResult ? 'found' : 'not_found';
+        verified = !!checkResult;
       }
+
+      return {
+        platform: platform.name,
+        category: platform.category,
+        url: targetUrl,
+        status,
+        verified,
+        verificationProof,
+        location,
+        bio,
+        displayName,
+        avatarUrl,
+        collectedAt,
+      };
+    } catch {
+      return {
+        platform: platform.name,
+        category: platform.category,
+        url: targetUrl,
+        status: 'unknown' as const,
+        verified: false,
+        collectedAt,
+      };
+    }
+  });
 
       return {
         platform: platform.name,

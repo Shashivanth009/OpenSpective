@@ -1336,7 +1336,7 @@ async function runLocationCollector(
 ): Promise<void> {
   const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'location');
   try {
-    const result = await collectLocationIntelligence(locationClues, commitDates);
+    const result = await collectLocationIntelligence(locationClues, commitDates, ctx.normalizedTarget);
     const findings: Omit<Finding, 'id'>[] = [];
     const ts = result.collectedAt;
 
@@ -1428,6 +1428,45 @@ async function runLocationCollector(
           sourceUrl: null,
           confidence: 'medium',
           isInferred: true,
+          collectedAt: ts,
+          fromEntityId: '',
+          toEntityId: '',
+        });
+      }
+    }
+
+    // 3. Physical Place Visits, Social Check-ins & Google Maps Reviews
+    if (result.placeVisits && result.placeVisits.length > 0) {
+      for (const pv of result.placeVisits) {
+        findings.push({
+          investigationId: ctx.investigationId,
+          collectorExecutionId: execId,
+          category: 'location_intelligence',
+          subcategory: pv.sourcePlatform === 'google_maps_reviews' ? 'google_maps_review' : 'social_checkin',
+          type: pv.sourcePlatform === 'google_maps_reviews' ? 'maps_review_contribution' : 'place_visit_checkin',
+          value: `${pv.placeName} (${pv.venueType})${pv.timestamp ? ` — Activity: ${pv.timestamp}` : ''}`,
+          rawData: { ...pv },
+          confidence: pv.confidence,
+          severity: 'info',
+          sourceUrl: pv.evidenceUrl,
+          sourceName: pv.sourcePlatform === 'google_maps_reviews' ? 'Google Maps Local Guides & Reviews' : 'Social Media Places Check-in',
+          firstSeen: pv.timestamp || ts,
+          lastSeen: pv.timestamp || ts,
+          isInferred: false,
+          notes: pv.snippet,
+        });
+
+        await persistRelationship(ctx.env.DB, {
+          investigationId: ctx.investigationId,
+          fromEntityType: (['person', 'email', 'username', 'organization', 'ip'].includes(ctx.targetType) ? ctx.targetType : 'person') as any,
+          toEntityType: 'location',
+          fromValue: ctx.target,
+          toValue: pv.placeName,
+          relationshipType: 'visited_place' as any,
+          findingId: null,
+          sourceUrl: pv.evidenceUrl,
+          confidence: pv.confidence,
+          isInferred: false,
           collectedAt: ts,
           fromEntityId: '',
           toEntityId: '',
@@ -2133,6 +2172,119 @@ async function runAll173OsintTools(
 }
 
 // ============================================================
+// Multi-Hop OSINT Correlation & Pivot Engine
+// "Connecting the Dots": Evaluates discovered entities,
+// maps cross-layer relationships, and links graph pivots
+// ============================================================
+async function runMultiHopOsintCorrelation(ctx: OrchestratorContext): Promise<void> {
+  const ts = nowIso();
+
+  try {
+    const findingsRes = await ctx.env.DB
+      .prepare(`SELECT * FROM findings WHERE investigation_id = ?`)
+      .bind(ctx.investigationId)
+      .all();
+
+    const findings = findingsRes.results as any[];
+    if (!findings || findings.length === 0) return;
+
+    const statements: any[] = [];
+    const addRel = (
+      fromType: string,
+      toType: string,
+      fromVal: string,
+      toVal: string,
+      relType: string,
+      conf: string,
+      sourceUrl?: string
+    ) => {
+      if (!fromVal || !toVal || fromVal.trim().toLowerCase() === toVal.trim().toLowerCase()) return;
+      const relId = `rel_${Math.random().toString(36).slice(2, 9)}_${Date.now()}`;
+      statements.push(
+        ctx.env.DB.prepare(
+          `INSERT OR IGNORE INTO relationships (id, investigation_id, from_entity_type, to_entity_type, from_value, to_value, relationship_type, source_url, confidence, is_inferred, collected_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+        ).bind(relId, ctx.investigationId, fromType, toType, fromVal.trim(), toVal.trim(), relType, sourceUrl || null, conf, ts)
+      );
+    };
+
+    for (const f of findings) {
+      const val = typeof f.value === 'string' ? f.value.trim() : '';
+      if (!val) continue;
+
+      // 1. Email addresses -> Domain and Username handles
+      if (val.includes('@') && !val.includes(' ') && val.length < 100) {
+        const parts = val.toLowerCase().split('@');
+        const userPart = parts[0];
+        const domainPart = parts[1];
+
+        if (domainPart && domainPart.includes('.')) {
+          addRel('email', 'domain', val, domainPart, 'has_email_domain', 'high', f.source_url);
+          addRel(ctx.targetType, 'domain', ctx.target, domainPart, 'associated_domain', 'high', f.source_url);
+        }
+        if (userPart && userPart.length >= 3) {
+          addRel('email', 'username', val, userPart, 'shares_handle', 'medium', f.source_url);
+          addRel(ctx.targetType, 'username', ctx.target, userPart, 'shares_handle', 'medium', f.source_url);
+        }
+      }
+
+      // 2. IP addresses -> Resolves to / Hosted by / Ports
+      if (f.type === 'dns_a' || f.type === 'dns_aaaa' || f.category === 'ipinfo') {
+        if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(val)) {
+          addRel('domain', 'ip', ctx.target, val, 'resolves_to', 'high', f.source_url);
+          if (f.raw_data) {
+            try {
+              const raw = typeof f.raw_data === 'string' ? JSON.parse(f.raw_data) : f.raw_data;
+              if (raw.org || raw.asn) {
+                addRel('ip', 'organization', val, String(raw.org || raw.asn), 'hosted_by', 'high', f.source_url);
+              }
+              if (Array.isArray(raw.ports)) {
+                for (const p of raw.ports.slice(0, 4)) {
+                  addRel('ip', 'port', val, `Port ${p}`, 'exposes_port', 'high', f.source_url);
+                }
+              }
+            } catch {}
+          }
+        }
+      }
+
+      // 3. Usernames & Developer / Social footprints
+      if (f.category === 'social_media' || f.category === 'developer' || f.type === 'github_user') {
+        const cleanUname = val.replace(/^https?:\/\/[^\/]+\//, '').replace(/\/$/, '').trim();
+        if (cleanUname && cleanUname.length >= 3 && cleanUname.length <= 40) {
+          addRel(ctx.targetType, 'username', ctx.target, cleanUname, 'operates_handle', 'high', f.source_url);
+          if (f.source_name) {
+            addRel('username', 'service', cleanUname, f.source_name, 'profile_on', 'high', f.source_url);
+          }
+        }
+      }
+
+      // 4. Physical Locations & Place Visits
+      if (f.category === 'location_intelligence' && f.type === 'geocoded_location') {
+        addRel(ctx.targetType, 'location', ctx.target, val, 'located_in', f.confidence || 'high', f.source_url);
+      }
+      if (f.category === 'location_intelligence' && f.type === 'place_visit_checkin') {
+        addRel(ctx.targetType, 'location', ctx.target, val, 'visited_place', f.confidence || 'high', f.source_url);
+      }
+    }
+
+    // Execute relationship batch insertions
+    for (let idx = 0; idx < statements.length; idx += 40) {
+      const chunk = statements.slice(idx, idx + 40);
+      try {
+        await ctx.env.DB.batch(chunk);
+      } catch {
+        for (const stmt of chunk) {
+          try { await stmt.run(); } catch {}
+        }
+      }
+    }
+  } catch {
+    // Fail-safe: continue even if edge correlation encounters partial error
+  }
+}
+
+// ============================================================
 // Main orchestration entry point
 // ============================================================
 
@@ -2346,6 +2498,9 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
 
     // Execute full 173-tool OSINT framework suite
     await runAll173OsintTools(ctx, normalizedTarget, targetType);
+
+    // Phase 2: Autonomous Multi-Hop Pivoting & Correlation Engine ("Connecting the Dots")
+    await runMultiHopOsintCorrelation(ctx);
 
     // Determine final status
     const executions = await env.DB

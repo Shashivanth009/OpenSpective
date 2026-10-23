@@ -15,7 +15,8 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import {
   GitBranch, ArrowLeft, RefreshCw, AlertCircle, MapPin, ExternalLink,
-  Search, Filter, Layers, Download, X, Maximize2
+  Search, Filter, Layers, Download, X, Maximize2, Globe, Server, Mail,
+  User, ShieldAlert, Key, Cpu, Database, Building2, Link2, Eye
 } from 'lucide-react';
 import * as api from '../api.ts';
 
@@ -39,6 +40,25 @@ const NODE_TYPE_COLORS: Record<string, string> = {
   unknown: '#94a3b8',
 };
 
+// Node icon helper for category banners
+const getNodeIcon = (type: string) => {
+  switch (type?.toLowerCase()) {
+    case 'domain':
+    case 'subdomain': return <Globe size={11} />;
+    case 'ip': return <Server size={11} />;
+    case 'email': return <Mail size={11} />;
+    case 'username':
+    case 'person': return <User size={11} />;
+    case 'location': return <MapPin size={11} />;
+    case 'organization': return <Building2 size={11} />;
+    case 'threat_ioc': return <ShieldAlert size={11} />;
+    case 'repository': return <Database size={11} />;
+    case 'url': return <Link2 size={11} />;
+    case 'crypto_wallet': return <Key size={11} />;
+    default: return <Cpu size={11} />;
+  }
+};
+
 type LayoutType = 'radial' | 'concentric' | 'hierarchy' | 'grid';
 
 function GraphViewInner() {
@@ -49,6 +69,7 @@ function GraphViewInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<any>(null);
+  const [hoveredNode, setHoveredNode] = useState<{ raw: any; x: number; y: number } | null>(null);
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [layout, setLayout] = useState<LayoutType>('radial');
@@ -85,6 +106,17 @@ function GraphViewInner() {
     }
     return set;
   }, [selectedNode, rawGraph]);
+
+  // Compute degree connections for every node
+  const nodeConnectionMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!rawGraph?.edges) return map;
+    for (const e of rawGraph.edges) {
+      map.set(e.source, (map.get(e.source) || 0) + 1);
+      map.set(e.target, (map.get(e.target) || 0) + 1);
+    }
+    return map;
+  }, [rawGraph?.edges]);
 
   // Calculate distinct node types with counts
   const nodeTypeStats = useMemo(() => {
@@ -204,17 +236,18 @@ function GraphViewInner() {
     return positions;
   }, [filteredRawNodes, layout]);
 
-  // Construct Flow Nodes
+  // Construct Flow Nodes with modern color blocks
   const flowNodes: Node[] = useMemo(() => {
     return filteredRawNodes.map((n: any, idx: number) => {
       const isRoot = idx === 0 && filterType === 'all' && !searchQuery.trim();
       const pos = layoutedPositions[n.id] || { x: 400, y: 300 };
       const color = NODE_TYPE_COLORS[n.type?.toLowerCase()] || '#10b981';
-      const isLocation = n.type?.toLowerCase() === 'location';
 
       const isSelected = selectedNode?.id === n.id;
+      const isHovered = hoveredNode?.raw?.id === n.id;
       const isNeighbor = connectedNeighborIds.has(n.id);
       const isDimmed = selectedNode && !isNeighbor;
+      const connectionCount = nodeConnectionMap.get(n.id) || 0;
 
       return {
         id: n.id,
@@ -222,63 +255,90 @@ function GraphViewInner() {
         position: pos,
         data: {
           label: (
-            <div style={{ textAlign: 'center', padding: '4px' }}>
+            <div style={{
+              borderRadius: '9px',
+              overflow: 'hidden',
+              minWidth: '150px',
+              maxWidth: '220px',
+              boxShadow: isSelected
+                ? `0 0 22px ${color}80, 0 8px 24px rgba(0,0,0,0.18)`
+                : isHovered
+                ? `0 0 16px ${color}60, 0 6px 18px rgba(0,0,0,0.12)`
+                : '0 4px 14px rgba(0,0,0,0.08)',
+              border: isSelected
+                ? `2px solid ${color}`
+                : isHovered
+                ? `2px solid ${color}`
+                : '1px solid rgba(0,0,0,0.08)',
+              background: '#ffffff',
+            }}>
+              {/* Category Color Block Header */}
               <div style={{
-                fontSize: '10px',
-                textTransform: 'uppercase',
-                color: isLocation ? '#f43f5e' : color,
-                fontWeight: 800,
-                letterSpacing: '0.04em',
+                background: color,
+                padding: '4px 8px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px',
-                marginBottom: '2px',
+                justifyContent: 'space-between',
+                color: '#ffffff',
               }}>
-                {isLocation && <MapPin size={11} />}
-                {n.type}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  {getNodeIcon(n.type)}
+                  <span style={{
+                    fontSize: '9px',
+                    fontWeight: 800,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                  }}>
+                    {n.type}
+                  </span>
+                </div>
+                <span style={{
+                  fontSize: '8px',
+                  background: 'rgba(255, 255, 255, 0.28)',
+                  padding: '1px 5px',
+                  borderRadius: '4px',
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                }}>
+                  {connectionCount} {connectionCount === 1 ? 'link' : 'links'}
+                </span>
               </div>
+
+              {/* Node Body Card */}
               <div style={{
-                fontSize: isRoot ? '13px' : '12px',
-                fontWeight: isRoot ? 700 : 600,
-                color: 'var(--color-dark)',
-                wordBreak: 'break-all',
-                lineHeight: 1.3,
+                padding: '7px 10px',
+                background: isSelected ? 'rgba(255, 255, 255, 0.98)' : '#ffffff',
+                textAlign: 'left',
               }}>
-                {n.label || n.value}
+                <div style={{
+                  fontSize: isRoot ? '12.5px' : '11.5px',
+                  fontWeight: 700,
+                  color: '#0f172a',
+                  wordBreak: 'break-all',
+                  lineHeight: 1.3,
+                }}>
+                  {n.label || n.value}
+                </div>
               </div>
             </div>
           ),
           raw: n,
         },
         style: {
-          background: isSelected
-            ? 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(16,185,129,0.1)) #ffffff'
-            : '#ffffff',
-          border: isSelected
-            ? `2.5px solid ${color}`
-            : isNeighbor && selectedNode
-            ? `2px solid ${color}`
-            : `1.5px solid ${color}90`,
-          borderRadius: '12px',
-          boxShadow: isSelected
-            ? `0 0 24px ${color}60, 0 8px 24px rgba(0,0,0,0.15)`
-            : isNeighbor && selectedNode
-            ? `0 0 16px ${color}40`
-            : '0 4px 14px rgba(0,0,0,0.06)',
-          padding: '8px 14px',
-          minWidth: '130px',
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
           cursor: 'pointer',
-          opacity: isDimmed ? 0.22 : 1,
+          opacity: isDimmed ? 0.2 : 1,
           transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-          transform: isSelected ? 'scale(1.08)' : 'scale(1)',
-          zIndex: isSelected ? 10 : isNeighbor ? 5 : 1,
+          transform: isSelected ? 'scale(1.08)' : isHovered ? 'scale(1.05)' : 'scale(1)',
+          zIndex: isSelected ? 15 : isHovered ? 12 : isNeighbor ? 5 : 1,
         },
       };
     });
-  }, [filteredRawNodes, layoutedPositions, selectedNode, connectedNeighborIds, filterType, searchQuery]);
+  }, [filteredRawNodes, layoutedPositions, selectedNode, hoveredNode, connectedNeighborIds, filterType, searchQuery, nodeConnectionMap]);
 
-  // Construct Flow Edges (only if both source and target are visible)
+  // Construct Flow Edges with dynamic highlights and animated pulses
   const flowEdges: Edge[] = useMemo(() => {
     if (!rawGraph?.edges) return [];
     const visibleIds = new Set(filteredRawNodes.map((n: any) => n.id));
@@ -287,6 +347,8 @@ function GraphViewInner() {
       .filter((e: any) => visibleIds.has(e.source) && visibleIds.has(e.target))
       .map((e: any) => {
         const isConnectedToSelected = selectedNode && (e.source === selectedNode.id || e.target === selectedNode.id);
+        const isConnectedToHovered = hoveredNode?.raw && (e.source === hoveredNode.raw.id || e.target === hoveredNode.raw.id);
+        const isHighlighted = isConnectedToSelected || isConnectedToHovered;
         const isDimmed = selectedNode && !isConnectedToSelected;
 
         return {
@@ -295,26 +357,27 @@ function GraphViewInner() {
           target: e.target,
           label: e.label || e.type,
           type: 'smoothstep',
+          animated: isHighlighted,
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: isConnectedToSelected ? 'var(--color-accent)' : '#94a3b8',
+            color: isConnectedToHovered ? '#3b82f6' : isConnectedToSelected ? 'var(--color-accent)' : '#94a3b8',
           },
           style: {
-            stroke: isConnectedToSelected ? 'var(--color-accent)' : '#94a3b8',
-            strokeWidth: isConnectedToSelected ? 2.5 : 1.5,
+            stroke: isConnectedToHovered ? '#3b82f6' : isConnectedToSelected ? 'var(--color-accent)' : '#94a3b8',
+            strokeWidth: isHighlighted ? 2.5 : 1.5,
             opacity: isDimmed ? 0.12 : 1,
             transition: 'all 0.25s ease',
           },
           labelStyle: {
-            fill: isConnectedToSelected ? 'var(--color-accent-dark)' : '#64748b',
+            fill: isConnectedToHovered ? '#1d4ed8' : isConnectedToSelected ? 'var(--color-accent-dark)' : '#64748b',
             fontSize: 10,
-            fontWeight: isConnectedToSelected ? 700 : 500,
+            fontWeight: isHighlighted ? 700 : 500,
             opacity: isDimmed ? 0.15 : 1,
           },
           data: e,
         };
       });
-  }, [rawGraph?.edges, filteredRawNodes, selectedNode]);
+  }, [rawGraph?.edges, filteredRawNodes, selectedNode, hoveredNode]);
 
   // Sync to ReactFlow state
   useEffect(() => {
@@ -527,7 +590,14 @@ function GraphViewInner() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeClick={onNodeClick}
-            onPaneClick={() => setSelectedNode(null)}
+            onNodeMouseEnter={(_event, node) => {
+              setHoveredNode({ raw: node.data.raw, x: _event.clientX, y: _event.clientY });
+            }}
+            onNodeMouseLeave={() => setHoveredNode(null)}
+            onPaneClick={() => {
+              setSelectedNode(null);
+              setHoveredNode(null);
+            }}
             fitView
           >
             <MiniMap
@@ -542,6 +612,50 @@ function GraphViewInner() {
             <Controls style={{ borderRadius: '8px', overflow: 'hidden', boxShadow: 'var(--shadow-md)' }} />
             <Background gap={18} size={1} color="var(--color-border)" />
           </ReactFlow>
+        )}
+
+        {/* Floating On-Hover Intelligence Info Card */}
+        {hoveredNode && !selectedNode && (
+          <div
+            className="graph-hover-card"
+            style={{
+              left: Math.min(window.innerWidth - 320, hoveredNode.x + 16),
+              top: Math.min(window.innerHeight - 180, hoveredNode.y + 16),
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <span
+                style={{
+                  background: NODE_TYPE_COLORS[hoveredNode.raw.type?.toLowerCase()] || '#10b981',
+                  color: '#ffffff',
+                  fontSize: '9.5px',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                {getNodeIcon(hoveredNode.raw.type)}
+                {hoveredNode.raw.type}
+              </span>
+              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                {nodeConnectionMap.get(hoveredNode.raw.id) || 0} links
+              </span>
+            </div>
+
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', wordBreak: 'break-all', marginBottom: '6px' }}>
+              {hoveredNode.raw.label || hoveredNode.raw.value}
+            </div>
+
+            <div style={{ fontSize: '10.5px', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Eye size={11} style={{ color: 'var(--color-accent)' }} />
+              <span>Click node to pin details & multi-hop links</span>
+            </div>
+          </div>
         )}
 
         {/* Selected Node Frosted Glass Drawer */}

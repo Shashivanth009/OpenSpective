@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   History, Search, RefreshCw, PlusCircle,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Trash2, AlertTriangle, Check
 } from 'lucide-react';
 import * as api from '../api.ts';
 
@@ -15,9 +15,18 @@ export default function HistoryPage() {
   const [searchFilter, setSearchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isClearingAll, setIsClearingAll] = useState(false);
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const pageSize = 15;
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -31,6 +40,40 @@ export default function HistoryPage() {
       setError(err?.message || 'Failed to load investigation history.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteSingle = async (id: string, targetName: string) => {
+    if (!window.confirm(`Delete investigation for "${targetName}" (${id})? This will permanently remove all findings and records.`)) {
+      return;
+    }
+    setDeletingId(id);
+    try {
+      await api.deleteInvestigation(id);
+      setInvestigations(prev => prev.filter(inv => inv.id !== id));
+      setTotal(prev => Math.max(0, prev - 1));
+      showToast(`Investigation for "${targetName}" deleted.`);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to delete investigation.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleClearAll = async () => {
+    setIsClearingAll(true);
+    setError(null);
+    try {
+      const res = await api.clearAllInvestigations();
+      setInvestigations([]);
+      setTotal(0);
+      setHasMore(false);
+      setShowClearModal(false);
+      showToast(res.message || 'All reconnaissance history has been permanently wiped.');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to clear investigation history.');
+    } finally {
+      setIsClearingAll(false);
     }
   };
 
@@ -70,15 +113,47 @@ export default function HistoryPage() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
           <button onClick={fetchHistory} className="btn btn-ghost btn-sm">
             <RefreshCw size={15} /> Refresh
           </button>
+          {investigations.length > 0 && (
+            <button
+              onClick={() => setShowClearModal(true)}
+              className="btn btn-danger btn-sm"
+              style={{ background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)' }}
+              title="Delete all investigation history"
+            >
+              <Trash2 size={15} /> Clear All History
+            </button>
+          )}
           <Link to="/investigate" className="btn btn-primary btn-sm">
             <PlusCircle size={15} /> New Scan
           </Link>
         </div>
       </div>
+
+      {/* Floating Feedback Toast */}
+      {toastMessage && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          background: 'rgba(16, 185, 129, 0.95)',
+          color: '#ffffff',
+          padding: '10px 18px',
+          borderRadius: 'var(--radius-lg)',
+          boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
+          zIndex: 9999,
+          fontSize: '13px',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+        }}>
+          <Check size={16} /> {toastMessage}
+        </div>
+      )}
 
       {error && (
         <div className="alert alert-error" style={{ marginBottom: 'var(--space-6)' }}>
@@ -191,13 +266,26 @@ export default function HistoryPage() {
                         {inv.completed_at ? new Date(inv.completed_at).toLocaleString() : '—'}
                       </td>
                       <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end', alignItems: 'center' }}>
                           <Link to={`/investigations/${inv.id}`} className="btn btn-secondary btn-sm" style={{ padding: '4px 10px' }}>
                             Details
                           </Link>
                           <Link to={`/investigations/${inv.id}/graph`} className="btn btn-ghost btn-sm" style={{ padding: '4px 10px' }}>
                             Graph
                           </Link>
+                          <button
+                            onClick={() => handleDeleteSingle(inv.id, inv.target)}
+                            disabled={deletingId === inv.id}
+                            className="btn btn-ghost btn-sm"
+                            style={{ padding: '4px 8px', color: '#ef4444' }}
+                            title="Permanently delete this investigation"
+                          >
+                            {deletingId === inv.id ? (
+                              <span className="spinner" style={{ width: 13, height: 13 }} />
+                            ) : (
+                              <Trash2 size={14} />
+                            )}
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -239,6 +327,61 @@ export default function HistoryPage() {
           </div>
         </div>
       </div>
+
+      {/* Clear All Confirmation Modal */}
+      {showClearModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: 'var(--space-4)',
+        }}>
+          <div className="card glass-panel" style={{ maxWidth: '480px', width: '100%', padding: 'var(--space-6)', border: '1px solid rgba(239, 68, 68, 0.4)', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', color: '#ef4444' }}>
+              <AlertTriangle size={28} />
+              <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 800, margin: 0 }}>Permanently Wipe All History?</h2>
+            </div>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 'var(--space-6)' }}>
+              This will permanently delete all {total} reconnaissance investigations, including all OSINT collector telemetry, discovered findings, STIX artifacts, and relationship graphs. This action cannot be reversed.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)' }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setShowClearModal(false)}
+                disabled={isClearingAll}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={handleClearAll}
+                disabled={isClearingAll}
+                style={{ background: '#ef4444', color: 'white' }}
+              >
+                {isClearingAll ? (
+                  <>
+                    <span className="spinner" style={{ width: 14, height: 14 }} /> Wiping Everything...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={15} /> Yes, Delete All History
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -14,6 +14,7 @@
   "dependencies": {
     "@openspective/shared": "*",
     "clsx": "^2.1.1",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.462.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

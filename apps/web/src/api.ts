@@ -216,6 +216,14 @@ export async function getInvestigation(id: string): Promise<{
   return apiFetch(`/investigations/${id}`);
 }
 
+export async function deleteInvestigation(id: string): Promise<{ success: boolean; message: string }> {
+  return apiFetch(`/investigations/${id}`, { method: 'DELETE' });
+}
+
+export async function clearAllInvestigations(): Promise<{ success: boolean; message: string; deletedCount: number }> {
+  return apiFetch('/investigations', { method: 'DELETE' });
+}
+
 export async function getFindings(
   id: string,
   category?: string,

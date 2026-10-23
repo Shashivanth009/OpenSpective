@@ -219,6 +219,47 @@ investigationsRouter.post('/:id/cancel', async (c) => {
   return c.json({ message: 'Cancellation requested. Active collectors may complete their current operation.' });
 });
 
+// ---- DELETE /investigations/:id (Delete Single Investigation) ----
+investigationsRouter.delete('/:id', async (c) => {
+  const { id } = c.req.param();
+
+  const investigation = await c.env.DB
+    .prepare(`SELECT id FROM investigations WHERE id = ?`)
+    .bind(id)
+    .first();
+
+  if (!investigation) return c.json({ error: 'Not found.', code: 'NOT_FOUND' }, 404);
+
+  // Cascading cleanup across all associated tables
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM findings WHERE investigation_id = ?`).bind(id),
+    c.env.DB.prepare(`DELETE FROM collector_executions WHERE investigation_id = ?`).bind(id),
+    c.env.DB.prepare(`DELETE FROM relationships WHERE investigation_id = ?`).bind(id),
+    c.env.DB.prepare(`DELETE FROM ai_analyses WHERE investigation_id = ?`).bind(id),
+    c.env.DB.prepare(`DELETE FROM guest_investigations WHERE investigation_id = ?`).bind(id),
+    c.env.DB.prepare(`DELETE FROM investigations WHERE id = ?`).bind(id),
+  ]);
+
+  return c.json({ success: true, message: `Investigation ${id} and all related intelligence findings deleted.` });
+});
+
+// ---- DELETE /investigations (Clear All History) ----
+investigationsRouter.delete('/', async (c) => {
+  const countRes = await c.env.DB.prepare(`SELECT COUNT(*) as count FROM investigations`).first<{ count: number }>();
+  const total = countRes?.count ?? 0;
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM findings`),
+    c.env.DB.prepare(`DELETE FROM collector_executions`),
+    c.env.DB.prepare(`DELETE FROM relationships`),
+    c.env.DB.prepare(`DELETE FROM ai_analyses`),
+    c.env.DB.prepare(`DELETE FROM guest_investigations`),
+    c.env.DB.prepare(`DELETE FROM investigations`),
+  ]);
+
+  return c.json({ success: true, message: `All reconnaissance history cleared (${total} records removed).`, deletedCount: total });
+});
+
 // ---- GET /investigations/:id/findings ----
 investigationsRouter.get('/:id/findings', apiRateLimit, async (c) => {
   const { id } = c.req.param();

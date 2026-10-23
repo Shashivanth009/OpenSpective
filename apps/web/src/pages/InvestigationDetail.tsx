@@ -8,6 +8,7 @@ import {
   FileSpreadsheet, FileCode
 } from 'lucide-react';
 import { OSINT_TOOLS_REGISTRY, OSINT_CATEGORIES } from '@openspective/shared';
+import { jsPDF } from 'jspdf';
 import * as api from '../api.ts';
 
 export default function InvestigationDetailPage() {
@@ -162,15 +163,267 @@ export default function InvestigationDetailPage() {
     }, 250);
   };
 
-  const handleExport = (format: 'json' | 'csv' | 'stix' | 'html') => {
+  const handleExport = async (format: 'json' | 'csv' | 'stix' | 'html' | 'pdf') => {
     if (!investigation) return;
     setIsExporting(format);
 
     try {
+      // Ensure we export all findings from the database, not just the initial page
+      let exportFindings = findings;
+      try {
+        const fullFindingsRes = await api.getFindings(investigation.id, undefined, 1, 3000);
+        if (fullFindingsRes.data && fullFindingsRes.data.length > 0) {
+          exportFindings = fullFindingsRes.data;
+        }
+      } catch {
+        // fallback to state findings
+      }
+
       const targetSlug = (investigation.target || 'target').replace(/[^a-zA-Z0-9_-]/g, '_');
       const filename = `openspective-${targetSlug}-${investigation.id.slice(0, 8)}.${format === 'stix' ? 'stix21.json' : format}`;
 
-      if (format === 'json') {
+      if (format === 'pdf') {
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const pageWidth = 210;
+        const pageHeight = 297;
+        const margin = 14;
+        const contentWidth = pageWidth - margin * 2; // 182mm
+
+        const drawPageHeader = (_pageNum: number) => {
+          doc.setFillColor(15, 23, 42); // slate-900
+          doc.rect(0, 0, pageWidth, 28, 'F');
+          
+          doc.setFillColor(16, 185, 129); // emerald-500
+          doc.rect(0, 28, pageWidth, 1.5, 'F');
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(13);
+          doc.setTextColor(255, 255, 255);
+          doc.text('OPENSPECTIVE OSINT INTELLIGENCE PLATFORM', margin, 12);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(148, 163, 184);
+          doc.text('PASSIVE RECONNAISSANCE & ATTACK SURFACE DOSSIER', margin, 18);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.setTextColor(52, 211, 153);
+          doc.text('TLP:CLEAR / OPEN INTELLIGENCE', pageWidth - margin, 12, { align: 'right' });
+
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(148, 163, 184);
+          doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth - margin, 18, { align: 'right' });
+        };
+
+        const drawPageFooter = (pageNum: number, totalPages: number) => {
+          doc.setDrawColor(203, 213, 225);
+          doc.setLineWidth(0.3);
+          doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(100, 116, 139);
+          doc.text('OpenSpective Intelligence Framework — Passive Threat & Footprint Analysis', margin, pageHeight - 7);
+          doc.text(`Page ${pageNum} of ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+        };
+
+        drawPageHeader(1);
+        let curY = 36;
+
+        // Target Overview Box
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(margin, curY, contentWidth, 32, 2, 2, 'F');
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(margin, curY, contentWidth, 32, 2, 2, 'S');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text('TARGET ENTITY', margin + 6, curY + 7);
+        doc.text('STATUS & TELEMETRY', margin + 95, curY + 7);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.setTextColor(15, 23, 42);
+        const targetTrunc = investigation.target.length > 32 ? investigation.target.slice(0, 32) + '...' : investigation.target;
+        doc.text(targetTrunc, margin + 6, curY + 16);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(16, 185, 129);
+        doc.text(`Target Type: ${investigation.target_type.toUpperCase()}`, margin + 6, curY + 23);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Investigation ID: ${investigation.id}`, margin + 6, curY + 28);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        const statusColor = investigation.status === 'completed' ? [16, 185, 129] : [59, 130, 246];
+        doc.setTextColor(statusColor[0], statusColor[1], statusColor[2]);
+        doc.text(`STATUS: ${investigation.status.toUpperCase()}`, margin + 95, curY + 16);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Engines Dispatched: ${executions.length} OSINT Collectors`, margin + 95, curY + 23);
+        doc.text(`Total Intelligence Findings: ${exportFindings.length}`, margin + 95, curY + 28);
+
+        curY += 38;
+
+        // Metrics Scorecard Cards
+        const cardWidth = (contentWidth - 9) / 4;
+        const criticalCount = exportFindings.filter(f => f.severity === 'critical' || f.severity === 'high').length;
+        const mediumCount = exportFindings.filter(f => f.severity === 'medium').length;
+        const lowCount = exportFindings.filter(f => f.severity === 'low' || f.severity === 'info' || !f.severity).length;
+        const highConfCount = exportFindings.filter(f => f.confidence === 'high').length;
+
+        const metrics = [
+          { label: 'CRITICAL / HIGH', val: String(criticalCount), color: [239, 68, 68] },
+          { label: 'MEDIUM ALERTS', val: String(mediumCount), color: [234, 179, 8] },
+          { label: 'LOW / INFO', val: String(lowCount), color: [59, 130, 246] },
+          { label: 'HIGH CONFIDENCE', val: String(highConfCount), color: [16, 185, 129] },
+        ];
+
+        metrics.forEach((m, idx) => {
+          const x = margin + idx * (cardWidth + 3);
+          doc.setFillColor(248, 250, 252);
+          doc.roundedRect(x, curY, cardWidth, 18, 1.5, 1.5, 'F');
+          doc.setDrawColor(226, 232, 240);
+          doc.roundedRect(x, curY, cardWidth, 18, 1.5, 1.5, 'S');
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.5);
+          doc.setTextColor(100, 116, 139);
+          doc.text(m.label, x + 4, curY + 6);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(12);
+          doc.setTextColor(m.color[0], m.color[1], m.color[2]);
+          doc.text(m.val, x + 4, curY + 14);
+        });
+
+        curY += 24;
+
+        // AI Summary if exists
+        if (aiReport?.summary) {
+          doc.setFillColor(240, 253, 244); // emerald-50
+          doc.setDrawColor(187, 247, 208);
+          const aiLines = doc.splitTextToSize(`Executive Synthesis: ${aiReport.summary}`, contentWidth - 10);
+          const boxHeight = Math.min(32, aiLines.length * 4.2 + 8);
+          doc.roundedRect(margin, curY, contentWidth, boxHeight, 1.5, 1.5, 'FD');
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.setTextColor(21, 128, 61);
+          doc.text('AI EXECUTIVE SYNTHESIS', margin + 5, curY + 6);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(51, 65, 85);
+          doc.text(aiLines.slice(0, 5), margin + 5, curY + 12);
+          curY += boxHeight + 6;
+        }
+
+        // Section Title: Discovered Findings
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`INTELLIGENCE FINDINGS & MULTI-HOP ARTIFACTS (${exportFindings.length})`, margin, curY);
+        curY += 4;
+
+        // Table Header
+        const colX = {
+          sev: margin + 2,
+          cat: margin + 24,
+          type: margin + 54,
+          val: margin + 84,
+          source: margin + 148,
+          conf: margin + 172,
+        };
+
+        const drawTableHeader = (y: number) => {
+          doc.setFillColor(226, 232, 240);
+          doc.rect(margin, y, contentWidth, 7, 'F');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7);
+          doc.setTextColor(51, 65, 85);
+          doc.text('SEVERITY', colX.sev, y + 5);
+          doc.text('CATEGORY', colX.cat, y + 5);
+          doc.text('TYPE', colX.type, y + 5);
+          doc.text('DISCOVERED VALUE', colX.val, y + 5);
+          doc.text('SOURCE', colX.source, y + 5);
+          doc.text('CONF.', colX.conf, y + 5);
+        };
+
+        drawTableHeader(curY);
+        curY += 8;
+
+        // Table Rows
+        exportFindings.forEach((f, idx) => {
+          if (curY > pageHeight - 20) {
+            doc.addPage();
+            drawPageHeader(doc.getNumberOfPages());
+            curY = 36;
+            drawTableHeader(curY);
+            curY += 8;
+          }
+
+          if (idx % 2 === 1) {
+            doc.setFillColor(248, 250, 252);
+            doc.rect(margin, curY - 1, contentWidth, 6.5, 'F');
+          }
+
+          // Severity badge
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.5);
+          if (f.severity === 'critical') doc.setTextColor(220, 38, 38);
+          else if (f.severity === 'high') doc.setTextColor(234, 88, 12);
+          else if (f.severity === 'medium') doc.setTextColor(202, 138, 4);
+          else doc.setTextColor(71, 85, 105);
+          doc.text((f.severity || 'info').toUpperCase(), colX.sev, curY + 3.5);
+
+          // Category
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.5);
+          doc.setTextColor(15, 23, 42);
+          const catStr = f.category.length > 15 ? f.category.slice(0, 15) : f.category;
+          doc.text(catStr, colX.cat, curY + 3.5);
+
+          // Type
+          const typeStr = f.type.length > 15 ? f.type.slice(0, 15) : f.type;
+          doc.text(typeStr, colX.type, curY + 3.5);
+
+          // Value
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(2, 132, 199);
+          const valStr = f.value.length > 36 ? f.value.slice(0, 35) + '...' : f.value;
+          doc.text(valStr, colX.val, curY + 3.5);
+
+          // Source
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(100, 116, 139);
+          const srcStr = (f.source_name || 'OpenSpective').slice(0, 14);
+          doc.text(srcStr, colX.source, curY + 3.5);
+
+          // Confidence
+          doc.setFont('helvetica', 'bold');
+          if (f.confidence === 'high') doc.setTextColor(16, 185, 129);
+          else if (f.confidence === 'medium') doc.setTextColor(202, 138, 4);
+          else doc.setTextColor(148, 163, 184);
+          doc.text((f.confidence || 'med').toUpperCase().slice(0, 4), colX.conf, curY + 3.5);
+
+          curY += 6.5;
+        });
+
+        // Add page footers to all pages
+        const totalPages = doc.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+          doc.setPage(i);
+          drawPageFooter(i, totalPages);
+        }
+
+        doc.save(filename);
+      } else if (format === 'json') {
         const reportData = {
           meta: {
             title: 'OpenSpective Passive OSINT Platform Report',
@@ -179,14 +432,14 @@ export default function InvestigationDetailPage() {
             status: investigation.status,
             startedAt: investigation.started_at,
             completedAt: investigation.completed_at,
-            findingsCount: findings.length,
+            findingsCount: exportFindings.length,
             collectorsCount: executions.length,
             generatedAt: new Date().toISOString(),
-            methodology: 'Passive multi-engine intelligence collection across public DNS, RDAP, certificate transparency, threat IOCs, developer registries, and search dorks.',
+            methodology: 'Passive multi-engine intelligence collection across public DNS, RDAP, certificate transparency, threat IOCs, developer registries, social check-in footprints, Google Maps reviews, and search dorks.',
           },
           investigation,
           collectors: executions,
-          findings,
+          findings: exportFindings,
           aiAnalysis: aiReport || null,
         };
         const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
@@ -199,7 +452,7 @@ export default function InvestigationDetailPage() {
             ? `"${s.replace(/"/g, '""')}"`
             : s;
         };
-        const rows = findings.map(f => [
+        const rows = exportFindings.map(f => [
           escapeCsv(f.id),
           escapeCsv(f.category),
           escapeCsv(f.subcategory),
@@ -239,7 +492,7 @@ export default function InvestigationDetailPage() {
             modified: now,
             first_observed: investigation.started_at,
             last_observed: investigation.completed_at || now,
-            number_observed: findings.length,
+            number_observed: exportFindings.length,
             objects: {
               '0': {
                 type: investigation.target_type === 'ip' ? 'ipv4-addr' : investigation.target_type === 'email' ? 'email-addr' : 'domain-name',
@@ -249,7 +502,7 @@ export default function InvestigationDetailPage() {
           },
         ];
 
-        findings.forEach((f) => {
+        exportFindings.forEach((f) => {
           stixObjects.push({
             type: 'indicator',
             spec_version: '2.1',
@@ -277,7 +530,7 @@ export default function InvestigationDetailPage() {
       } else if (format === 'html') {
         const escapeHtml = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         
-        const findingsRows = findings.map(f => `
+        const findingsRows = exportFindings.map(f => `
           <tr>
             <td><span class="badge badge-${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
             <td><strong>${escapeHtml(f.category)}</strong><div class="sub">${escapeHtml(f.type)}</div></td>
@@ -385,13 +638,13 @@ export default function InvestigationDetailPage() {
     </div>
     <div class="metric-card">
       <div class="metric-label">Discovered Findings</div>
-      <div class="metric-value" style="color: #38bdf8;">${findings.length}</div>
-      <div class="sub">${findings.filter(f => f.confidence === 'high').length} High Confidence</div>
+      <div class="metric-value" style="color: #38bdf8;">${exportFindings.length}</div>
+      <div class="sub">${exportFindings.filter(f => f.confidence === 'high').length} High Confidence</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">Critical / High Alerts</div>
-      <div class="metric-value" style="color: ${findings.filter(f => f.severity === 'critical' || f.severity === 'high').length > 0 ? '#f87171' : '#34d399'};">
-        ${findings.filter(f => f.severity === 'critical' || f.severity === 'high').length}
+      <div class="metric-value" style="color: ${exportFindings.filter(f => f.severity === 'critical' || f.severity === 'high').length > 0 ? '#f87171' : '#34d399'};">
+        ${exportFindings.filter(f => f.severity === 'critical' || f.severity === 'high').length}
       </div>
       <div class="sub">Immediate attention items</div>
     </div>
@@ -406,7 +659,7 @@ export default function InvestigationDetailPage() {
     </div>
   ` : ''}
 
-  <div class="section-title">📊 Intelligence Findings (${findings.length})</div>
+  <div class="section-title">📊 Intelligence Findings (${exportFindings.length})</div>
   <table>
     <thead>
       <tr>
@@ -797,6 +1050,15 @@ export default function InvestigationDetailPage() {
                 style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
               >
                 <FileText size={13} style={{ color: 'var(--color-accent)' }} /> HTML
+              </button>
+              <button
+                onClick={() => handleExport('pdf')}
+                disabled={isExporting !== null}
+                className="btn btn-ghost btn-xs"
+                title="Generate and Download Official PDF Intelligence Report"
+                style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
+              >
+                <FileText size={13} style={{ color: '#ef4444' }} /> {isExporting === 'pdf' ? 'Rendering...' : 'PDF'}
               </button>
             </div>
 

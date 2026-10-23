@@ -23,7 +23,7 @@ export interface OsintDorkItem {
   title: string;
   query: string;
   searchUrl: string;
-  platform: 'Google' | 'GitHub' | 'Shodan' | 'Censys' | 'OpenCorporates' | 'Pastebin' | 'Wayback';
+  platform: string;
   description: string;
 }
 
@@ -263,7 +263,47 @@ export function generateOsintFrameworkDorks(target: string, type: TargetType): O
       description: 'Queries Censys scanning engine for historical certificates, IP infrastructure, and TLS handshakes.',
     });
 
-    // 9. OpenCorporates Company Registry
+    // 9. FOFA Cyberspace Search
+    dorks.push({
+      category: 'infrastructure',
+      title: 'FOFA Cyberspace Asset Search',
+      query: `domain="${slug}" || host="${slug}"`,
+      searchUrl: `https://en.fofa.info/result?qbase64=${btoa(`domain="${slug}" || host="${slug}"`)}`,
+      platform: 'FOFA',
+      description: 'Global cyberspace search engine for internet-connected assets and software banners.',
+    });
+
+    // 10. VirusTotal Threat Reputation
+    dorks.push({
+      category: 'infrastructure',
+      title: 'VirusTotal Domain Reputation & Passive DNS',
+      query: slug,
+      searchUrl: `https://www.virustotal.com/gui/domain/${encodeURIComponent(slug)}`,
+      platform: 'VirusTotal',
+      description: 'Aggregated community malware analysis, passive DNS graph, and SSL certificates.',
+    });
+
+    // 11. GrayhatWarfare Cloud Buckets
+    dorks.push({
+      category: 'cloud_buckets',
+      title: 'GrayhatWarfare Exposed S3/GCS Files',
+      query: slug,
+      searchUrl: `https://grayhatwarfare.com/files?keywords=${encodeURIComponent(slug)}`,
+      platform: 'GrayhatWarfare',
+      description: 'Public search engine indexing exposed files across public AWS S3 and GCP storage buckets.',
+    });
+
+    // 12. Wayback Machine Historical Footprint
+    dorks.push({
+      category: 'infrastructure',
+      title: 'Wayback Machine Archive Index',
+      query: `*.${slug}/*`,
+      searchUrl: `https://web.archive.org/web/*/${encodeURIComponent(slug)}*`,
+      platform: 'Wayback',
+      description: 'Retrieves historical snapshots, decommissioned subdomains, and past web architectures.',
+    });
+
+    // 13. OpenCorporates Company Registry
     const corpName = slug.split('.')[0] || slug;
     dorks.push({
       category: 'corporate_records',
@@ -304,6 +344,24 @@ export function generateOsintFrameworkDorks(target: string, type: TargetType): O
       platform: 'GitHub',
       description: 'Finds verified git commit signatures linked to this email address.',
     });
+
+    dorks.push({
+      category: 'exposed_secrets',
+      title: 'Have I Been Pwned Breach Check',
+      query: cleanTarget,
+      searchUrl: `https://haveibeenpwned.com/unifiedsearch/${encodeURIComponent(cleanTarget)}`,
+      platform: 'HaveIBeenPwned',
+      description: 'Verifies whether this email address has surfaced in major public data breaches.',
+    });
+
+    dorks.push({
+      category: 'social_mentions',
+      title: 'Epieos Account & Service Discovery',
+      query: cleanTarget,
+      searchUrl: `https://epieos.com/?q=${encodeURIComponent(cleanTarget)}`,
+      platform: 'Epieos',
+      description: 'Finds associated Google account data, profiles, and active web registrations.',
+    });
   } else if (type === 'username') {
     // Username OSINT Techniques
     const userQuery = `"${cleanTarget}" (profile OR bio OR contact OR "about me")`;
@@ -325,6 +383,33 @@ export function generateOsintFrameworkDorks(target: string, type: TargetType): O
       platform: 'GitHub',
       description: 'Searches public repositories for code comments, configurations, or leaks referencing this username.',
     });
+
+    dorks.push({
+      category: 'social_mentions',
+      title: 'WhatsMyName Handle Enumeration',
+      query: cleanTarget,
+      searchUrl: `https://whatsmyname.app/?q=${encodeURIComponent(cleanTarget)}`,
+      platform: 'WhatsMyName',
+      description: 'High-speed enumeration across 500+ social and developer websites.',
+    });
+
+    dorks.push({
+      category: 'social_mentions',
+      title: 'Reddit User Activity & Subreddits',
+      query: cleanTarget,
+      searchUrl: `https://www.reddit.com/user/${encodeURIComponent(cleanTarget)}`,
+      platform: 'Reddit',
+      description: 'Inspects public Reddit comments, submitted posts, and moderated communities.',
+    });
+
+    dorks.push({
+      category: 'social_mentions',
+      title: 'TGStat Telegram Channels & Mentions',
+      query: cleanTarget,
+      searchUrl: `https://tgstat.com/search?q=${encodeURIComponent(cleanTarget)}`,
+      platform: 'TGStat',
+      description: 'Searches public Telegram channels and chat archives for mentions of this username.',
+    });
   } else if (type === 'ip') {
     // IP OSINT Techniques
     dorks.push({
@@ -343,6 +428,33 @@ export function generateOsintFrameworkDorks(target: string, type: TargetType): O
       searchUrl: `https://search.censys.io/hosts/${encodeURIComponent(cleanTarget)}`,
       platform: 'Censys',
       description: 'View Censys host page with service banners, autonomous system (ASN), and geolocation details.',
+    });
+
+    dorks.push({
+      category: 'infrastructure',
+      title: 'AbuseIPDB IP Reputation & Report Log',
+      query: cleanTarget,
+      searchUrl: `https://www.abuseipdb.com/check/${encodeURIComponent(cleanTarget)}`,
+      platform: 'AbuseIPDB',
+      description: 'Crowdsourced abuse database tracking scanning, brute-forcing, and malicious reports.',
+    });
+
+    dorks.push({
+      category: 'infrastructure',
+      title: 'GreyNoise Visualizer & Scanner Classification',
+      query: cleanTarget,
+      searchUrl: `https://viz.greynoise.io/ip/${encodeURIComponent(cleanTarget)}`,
+      platform: 'GreyNoise',
+      description: 'Classifies internet scanner behavior: distinguishes benign crawlers from malicious worms.',
+    });
+
+    dorks.push({
+      category: 'infrastructure',
+      title: 'BGP Routing & ASN (Hurricane Electric)',
+      query: cleanTarget,
+      searchUrl: `https://bgp.he.net/ip/${encodeURIComponent(cleanTarget)}`,
+      platform: 'BGP.he.net',
+      description: 'Inspects autonomous system origin, BGP route announcements, and peering graphs.',
     });
 
     const ipDocQuery = `"${cleanTarget}" (confidential OR internal OR router OR switch OR vpn)`;

@@ -233,7 +233,7 @@ investigationsRouter.get('/:id/findings', apiRateLimit, async (c) => {
 
   const category = c.req.query('category');
   const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10));
-  const pageSize = Math.min(100, Math.max(1, parseInt(c.req.query('pageSize') ?? '50', 10)));
+  const pageSize = Math.min(500, Math.max(1, parseInt(c.req.query('pageSize') ?? c.req.query('limit') ?? '50', 10)));
   const offset = (page - 1) * pageSize;
 
   const where = category ? `AND category = ?` : '';

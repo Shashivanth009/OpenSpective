@@ -11,6 +11,7 @@ import DocsPage from './pages/Docs.tsx';
 import PrivacyPage from './pages/Privacy.tsx';
 import TermsPage from './pages/Terms.tsx';
 import GraphPage from './pages/Graph.tsx';
+import OsintFrameworkPage from './pages/OsintFramework.tsx';
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
             <Route path="/docs" element={<DocsPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/terms" element={<TermsPage />} />
+            <Route path="/framework" element={<OsintFrameworkPage />} />
           </Route>
 
           {/* Auth routes redirected directly to /investigate */}
@@ -33,6 +35,7 @@ export default function App() {
           <Route element={<Layout showSidebar />}>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/investigate" element={<InvestigatePage />} />
+            <Route path="/framework" element={<OsintFrameworkPage />} />
             <Route path="/investigations/:id" element={<InvestigationPage />} />
             <Route path="/investigations/:id/graph" element={<GraphPage />} />
             <Route path="/history" element={<HistoryPage />} />

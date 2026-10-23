@@ -4,7 +4,7 @@ import {
   AlertTriangle, GitBranch, RefreshCw, Sparkles,
   FileText, ChevronDown, ChevronRight, Clock,
   ShieldCheck, BarChart3, CornerUpRight, ExternalLink,
-  Copy, Check, Database, MapPin
+  Copy, Check, Database, MapPin, Compass, Search
 } from 'lucide-react';
 import * as api from '../api.ts';
 
@@ -19,9 +19,20 @@ export default function InvestigationDetailPage() {
   const [analyzingAi, setAnalyzingAi] = useState(false);
   const [aiReport, setAiReport] = useState<any>(null);
   const [expandedFinding, setExpandedFinding] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'findings' | 'timeline' | 'scorecard'>('findings');
+  const [activeTab, setActiveTab] = useState<'findings' | 'timeline' | 'scorecard' | 'dorks'>('findings');
+  const [dorkEngineFilter, setDorkEngineFilter] = useState<string>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const getRawDataObj = (f: api.Finding): any => {
+    if (!f.raw_data) return null;
+    if (typeof f.raw_data === 'object') return f.raw_data;
+    try {
+      return JSON.parse(f.raw_data);
+    } catch {
+      return null;
+    }
+  };
 
   const fetchData = async () => {
     if (!id) return;
@@ -459,7 +470,7 @@ export default function InvestigationDetailPage() {
       )}
 
       {/* View Switcher Tabs */}
-      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)', flexWrap: 'wrap' }}>
         <button
           onClick={() => setActiveTab('findings')}
           className={`btn btn-sm ${activeTab === 'findings' ? 'btn-primary' : 'btn-secondary'}`}
@@ -477,6 +488,12 @@ export default function InvestigationDetailPage() {
           className={`btn btn-sm ${activeTab === 'scorecard' ? 'btn-primary' : 'btn-secondary'}`}
         >
           <BarChart3 size={15} /> Intelligence Scorecard
+        </button>
+        <button
+          onClick={() => setActiveTab('dorks')}
+          className={`btn btn-sm ${activeTab === 'dorks' ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          <Compass size={15} /> OSINT Framework & Techniques ({findings.filter(f => f.category === 'osint_framework' || f.type === 'osint_search_dork' || f.type === 'pgp_public_key' || f.type === 'threat_ioc' || f.type === 'cloud_bucket').length})
         </button>
       </div>
 
@@ -552,8 +569,13 @@ export default function InvestigationDetailPage() {
                               {f.type}
                             </td>
                             <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', wordBreak: 'break-all' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
                                 <span>{f.value}</span>
+                                {getRawDataObj(f)?.verified === true && (
+                                  <span className="badge badge-success" style={{ fontSize: '10px', padding: '1px 6px', display: 'inline-flex', alignItems: 'center', gap: '3px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>
+                                    <Check size={10} /> Verified Profile
+                                  </span>
+                                )}
                                 {f.source_url && (
                                   <a
                                     href={f.source_url}
@@ -568,8 +590,31 @@ export default function InvestigationDetailPage() {
                                 )}
                               </div>
                               {f.notes && (
-                                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-sans)', marginTop: 2 }}>
+                                <div style={{ fontSize: 'var(--text-xs)', color: f.notes.includes('✓') ? '#059669' : 'var(--color-text-secondary)', fontFamily: 'var(--font-sans)', marginTop: 2, fontWeight: f.notes.includes('✓') ? 600 : 400 }}>
                                   {f.notes}
+                                </div>
+                              )}
+                              {f.type === 'osint_search_dork' && f.source_url && (
+                                <div style={{ marginTop: '6px' }}>
+                                  <a
+                                    href={f.source_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="btn btn-xs"
+                                    style={{
+                                      background: 'var(--color-surface-elevated)',
+                                      color: 'var(--color-accent)',
+                                      border: '1px solid var(--color-border)',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      fontSize: '11px',
+                                      padding: '2px 8px'
+                                    }}
+                                  >
+                                    <Search size={11} /> Launch OSINT Technique ({getRawDataObj(f)?.search_engine || 'Web'})
+                                  </a>
                                 </div>
                               )}
                               {f.category === 'location_intelligence' && (
@@ -852,6 +897,175 @@ export default function InvestigationDetailPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* TAB 4: OSINT FRAMEWORK & SEARCH TECHNIQUES */}
+      {activeTab === 'dorks' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+          {/* Header & Quick Launch Bar */}
+          <div className="card" style={{ padding: 'var(--space-6)', background: 'linear-gradient(135deg, rgba(37,99,235,0.06), rgba(16,185,129,0.06))', border: '1.5px solid var(--color-accent-soft)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                  <Compass size={22} style={{ color: 'var(--color-accent)' }} />
+                  <h2 style={{ fontSize: 'var(--text-xl)', fontWeight: 800, margin: 0, color: 'var(--color-dark)' }}>
+                    OSINT Framework & Search Operations
+                  </h2>
+                </div>
+                <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', margin: 0, maxWidth: '750px' }}>
+                  Targeted search techniques, dork strings, public keyserver correlations, cloud storage permutations, and threat intelligence telemetry tailored for <code style={{ fontWeight: 700, color: 'var(--color-dark)' }}>{investigation.target}</code>.
+                </p>
+              </div>
+
+              <Link
+                to={`/framework?target=${encodeURIComponent(investigation.target)}&type=${investigation.target_type}`}
+                className="btn btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}
+              >
+                <Compass size={16} /> Open Interactive Hub
+              </Link>
+            </div>
+          </div>
+
+          {/* Engine Filter Bar */}
+          <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginRight: 'var(--space-2)' }}>
+              Filter Technique:
+            </span>
+            {['all', 'Google', 'GitHub', 'Shodan', 'Censys', 'Pastebin', 'Ubuntu PGP', 'Cloud Buckets'].map(eng => {
+              const count = findings.filter(f => {
+                if (eng === 'all') return f.category === 'osint_framework' || f.type === 'osint_search_dork' || f.type === 'pgp_public_key' || f.type === 'threat_ioc' || f.type === 'cloud_bucket';
+                const raw = getRawDataObj(f);
+                const name = (raw?.search_engine || raw?.provider || f.source_name || f.type).toLowerCase();
+                return name.includes(eng.toLowerCase());
+              }).length;
+
+              return (
+                <button
+                  key={eng}
+                  onClick={() => setDorkEngineFilter(eng)}
+                  className={`btn btn-xs ${dorkEngineFilter === eng ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ textTransform: 'capitalize' }}
+                >
+                  {eng} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Techniques Grid */}
+          {(() => {
+            const techniques = findings.filter(f => {
+              const isTech = f.category === 'osint_framework' || f.type === 'osint_search_dork' || f.type === 'pgp_public_key' || f.type === 'threat_ioc' || f.type === 'cloud_bucket';
+              if (!isTech) return false;
+              if (dorkEngineFilter === 'all') return true;
+              const raw = getRawDataObj(f);
+              const name = (raw?.search_engine || raw?.provider || f.source_name || f.type).toLowerCase();
+              return name.includes(dorkEngineFilter.toLowerCase());
+            });
+
+            if (techniques.length === 0) {
+              return (
+                <div className="card" style={{ padding: 'var(--space-12)', textAlign: 'center' }}>
+                  <Search size={32} style={{ color: 'var(--color-text-muted)', marginBottom: 'var(--space-3)' }} />
+                  <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: 'var(--color-dark)', marginBottom: 'var(--space-2)' }}>
+                    No automated techniques found in this category
+                  </h3>
+                  <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-4)' }}>
+                    Launch the full interactive OSINT Framework Hub to query across all 28+ open-source intelligence services.
+                  </p>
+                  <Link
+                    to={`/framework?target=${encodeURIComponent(investigation.target)}&type=${investigation.target_type}`}
+                    className="btn btn-secondary btn-sm"
+                  >
+                    Open Framework Hub
+                  </Link>
+                </div>
+              );
+            }
+
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 'var(--space-4)' }}>
+                {techniques.map(tech => {
+                  const raw = getRawDataObj(tech);
+                  const engineName = raw?.search_engine || raw?.provider || tech.source_name || 'OSINT';
+                  const queryText = raw?.query || tech.value;
+
+                  return (
+                    <div
+                      key={tech.id}
+                      className="card"
+                      style={{
+                        padding: 'var(--space-5)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        gap: 'var(--space-3)',
+                        border: '1px solid var(--color-border)',
+                        background: 'var(--color-surface)',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+                          <span className="badge badge-primary" style={{ fontSize: '11px', fontWeight: 700 }}>
+                            {engineName}
+                          </span>
+                          <span className="badge badge-neutral" style={{ fontSize: '10px', textTransform: 'capitalize' }}>
+                            {tech.type.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+
+                        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-dark)', marginBottom: 'var(--space-2)' }}>
+                          {tech.notes || raw?.purpose || tech.value}
+                        </div>
+
+                        {/* Query Preview Box */}
+                        <div style={{
+                          background: 'var(--color-bg)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--radius)',
+                          padding: 'var(--space-3)',
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: 'var(--text-xs)',
+                          color: 'var(--color-text-primary)',
+                          wordBreak: 'break-all',
+                          maxHeight: '80px',
+                          overflowY: 'auto',
+                        }}>
+                          {queryText}
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 'var(--space-2)', borderTop: '1px solid var(--color-border-subtle)' }}>
+                        <button
+                          onClick={() => handleCopyRaw(queryText, tech.id)}
+                          className="btn btn-ghost btn-xs"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          {copiedId === tech.id ? <Check size={12} /> : <Copy size={12} />}
+                          {copiedId === tech.id ? 'Copied' : 'Copy Query'}
+                        </button>
+
+                        {tech.source_url && (
+                          <a
+                            href={tech.source_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn btn-primary btn-xs"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            <ExternalLink size={12} /> Launch in {engineName}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

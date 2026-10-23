@@ -1,7 +1,7 @@
 import { Outlet, NavLink, Link } from 'react-router-dom';
 import {
   Search, LayoutDashboard, History, Settings,
-  Sun, Moon, Shield, BookOpen
+  Sun, Moon, Shield, BookOpen, Compass
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
@@ -10,7 +10,7 @@ function Logo({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
       <circle cx="32" cy="32" r="27" stroke="#609966" strokeWidth="4" />
-      <circle cx="32" cy="32" r="15" stroke="#9DC08B" strokeWidth="2.5" />
+      <circle cx="32" cy="15" r="15" stroke="#9DC08B" strokeWidth="2.5" />
       <circle cx="32" cy="14" r="3.5" fill="#609966" />
       <circle cx="32" cy="50" r="3.5" fill="#609966" />
       <circle cx="14" cy="32" r="3.5" fill="#609966" />
@@ -44,6 +44,7 @@ export default function Layout({ minimal, showSidebar }: LayoutProps) {
   const sidebarNav = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/investigate', icon: Search, label: 'Investigate' },
+    { to: '/framework', icon: Compass, label: 'OSINT Framework' },
     { to: '/history', icon: History, label: 'History' },
     { to: '/settings', icon: Settings, label: 'Settings' },
   ];
@@ -63,6 +64,7 @@ export default function Layout({ minimal, showSidebar }: LayoutProps) {
               <div className="nav-links" style={{ flex: 1, justifyContent: 'center' }}>
                 {!showSidebar && (
                   <>
+                    <NavLink to="/framework" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>OSINT Framework</NavLink>
                     <NavLink to="/docs" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Docs</NavLink>
                     <NavLink to="/privacy" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Privacy</NavLink>
                   </>

@@ -13,6 +13,11 @@ import { collectGitHubOrg, collectGitHubUser } from './collectors/github.ts';
 import { collectVtDomain, collectVtIp, collectVtUrl } from './collectors/virustotal.ts';
 import { collectPersonSearch, checkUsernamePresence } from './collectors/person.ts';
 import { collectEmailIdentity } from './collectors/email_identity.ts';
+import { collectWebArchive } from './collectors/web_archive.ts';
+import { collectTechStack } from './collectors/tech_stack.ts';
+import { collectCryptoWallet, detectCryptoNetwork } from './collectors/crypto.ts';
+import { collectBreachIntelligence } from './collectors/breach.ts';
+import { collectLocationIntelligence } from './collectors/location.ts';
 
 interface OrchestratorContext {
   investigationId: string;
@@ -653,9 +658,123 @@ async function runPersonSearchCollector(ctx: OrchestratorContext, name: string):
           toEntityId: '',
         });
       }
+
+      if (gh.location) {
+        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(gh.location)}`;
+        await persistRelationship(ctx.env.DB, {
+          investigationId: ctx.investigationId,
+          fromEntityType: 'person',
+          toEntityType: 'location',
+          fromValue: name,
+          toValue: gh.location,
+          relationshipType: 'located_in',
+          findingId: null,
+          sourceUrl: mapsUrl,
+          confidence: gh.confidence,
+          isInferred: false,
+          collectedAt: ts,
+          fromEntityId: '',
+          toEntityId: '',
+        });
+        await persistRelationship(ctx.env.DB, {
+          investigationId: ctx.investigationId,
+          fromEntityType: 'location',
+          toEntityType: 'url',
+          fromValue: gh.location,
+          toValue: mapsUrl,
+          relationshipType: 'resolves_to',
+          findingId: null,
+          sourceUrl: mapsUrl,
+          confidence: gh.confidence,
+          isInferred: false,
+          collectedAt: ts,
+          fromEntityId: '',
+          toEntityId: '',
+        });
+      }
     }
 
-    // 2. Wikipedia Articles
+    // 2. Git Commit Authorship Matches
+    const seenEmails = new Set<string>();
+    const seenRepos = new Set<string>();
+
+    for (const c of result.gitCommits ?? []) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'developer_activity',
+        subcategory: 'git_commit',
+        type: 'git_commit',
+        value: `${c.repo}@${c.sha}: ${c.message}`,
+        rawData: { ...c },
+        confidence: 'high',
+        severity: 'info',
+        sourceUrl: c.commitUrl,
+        sourceName: 'GitHub Commit Authorship',
+        firstSeen: c.date || ts,
+        lastSeen: c.date || ts,
+        isInferred: false,
+        notes: `Repo: ${c.repo} | Author: ${c.authorName} | Commit: ${c.message}`,
+      });
+
+      if (c.repo && !seenRepos.has(c.repo)) {
+        seenRepos.add(c.repo);
+        await persistRelationship(ctx.env.DB, {
+          investigationId: ctx.investigationId,
+          fromEntityType: 'person',
+          toEntityType: 'repository',
+          fromValue: name,
+          toValue: c.repo,
+          relationshipType: 'affiliated_with',
+          findingId: null,
+          sourceUrl: c.repoUrl || c.commitUrl,
+          confidence: 'high',
+          isInferred: false,
+          collectedAt: ts,
+          fromEntityId: '',
+          toEntityId: '',
+        });
+      }
+
+      if (c.authorEmail && !c.authorEmail.includes('noreply') && !seenEmails.has(c.authorEmail)) {
+        seenEmails.add(c.authorEmail);
+        findings.push({
+          investigationId: ctx.investigationId,
+          collectorExecutionId: execId,
+          category: 'identity_attribution',
+          subcategory: 'email',
+          type: 'git_author_email',
+          value: c.authorEmail,
+          rawData: { email: c.authorEmail, authorName: c.authorName, repo: c.repo },
+          confidence: 'high',
+          severity: 'info',
+          sourceUrl: c.commitUrl,
+          sourceName: 'Git Verified Identity',
+          firstSeen: c.date || ts,
+          lastSeen: c.date || ts,
+          isInferred: false,
+          notes: `Discovered public email <${c.authorEmail}> from author commits in repository ${c.repo}.`,
+        });
+
+        await persistRelationship(ctx.env.DB, {
+          investigationId: ctx.investigationId,
+          fromEntityType: 'person',
+          toEntityType: 'email',
+          fromValue: name,
+          toValue: c.authorEmail,
+          relationshipType: 'affiliated_with',
+          findingId: null,
+          sourceUrl: c.commitUrl,
+          confidence: 'high',
+          isInferred: false,
+          collectedAt: ts,
+          fromEntityId: '',
+          toEntityId: '',
+        });
+      }
+    }
+
+    // 3. Wikipedia Articles
     for (const wiki of result.wikipedia) {
       findings.push({
         investigationId: ctx.investigationId,
@@ -741,6 +860,19 @@ async function runPersonSearchCollector(ctx: OrchestratorContext, name: string):
 
     await persistFindings(ctx.env.DB, findings);
     await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, null);
+
+    // Automatically connect the dots: gather physical location clues and commit timestamp offsets
+    const extractedLocations: string[] = [];
+    const commitDates: string[] = [];
+    for (const gh of result.github) {
+      if (gh.location) extractedLocations.push(gh.location);
+    }
+    for (const c of result.gitCommits ?? []) {
+      if (c.date) commitDates.push(c.date);
+    }
+    if (extractedLocations.length > 0 || commitDates.length > 0) {
+      await runLocationCollector(ctx, extractedLocations, commitDates);
+    }
   } catch (err) {
     await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
   }
@@ -771,7 +903,12 @@ async function runUsernamePresenceCollector(ctx: OrchestratorContext, username: 
         firstSeen: ts,
         lastSeen: ts,
         isInferred: false,
-        notes: `Public profile found at ${r.url}`,
+        notes: [
+          `Public profile found at ${r.url}`,
+          r.displayName ? `Name: ${r.displayName}` : null,
+          r.location ? `Location: ${r.location}` : null,
+          r.bio ? `Bio: ${r.bio}` : null,
+        ].filter(Boolean).join(' | '),
       });
 
       await persistRelationship(ctx.env.DB, {
@@ -789,6 +926,40 @@ async function runUsernamePresenceCollector(ctx: OrchestratorContext, username: 
         fromEntityId: '',
         toEntityId: '',
       });
+
+      if (r.location) {
+        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.location)}`;
+        await persistRelationship(ctx.env.DB, {
+          investigationId: ctx.investigationId,
+          fromEntityType: 'username',
+          toEntityType: 'location',
+          fromValue: username,
+          toValue: r.location,
+          relationshipType: 'located_in',
+          findingId: null,
+          sourceUrl: mapsUrl,
+          confidence: 'medium',
+          isInferred: false,
+          collectedAt: ts,
+          fromEntityId: '',
+          toEntityId: '',
+        });
+        await persistRelationship(ctx.env.DB, {
+          investigationId: ctx.investigationId,
+          fromEntityType: 'location',
+          toEntityType: 'url',
+          fromValue: r.location,
+          toValue: mapsUrl,
+          relationshipType: 'resolves_to',
+          findingId: null,
+          sourceUrl: mapsUrl,
+          confidence: 'medium',
+          isInferred: false,
+          collectedAt: ts,
+          fromEntityId: '',
+          toEntityId: '',
+        });
+      }
     }
 
     await persistFindings(ctx.env.DB, findings);
@@ -848,6 +1019,414 @@ async function runEmailIdentityCollector(ctx: OrchestratorContext, email: string
 
     await persistFindings(ctx.env.DB, findings);
     await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, null);
+
+    // Automated correlation: Extract locations and git commit dates from email findings
+    const emailLocs: string[] = [];
+    const emailDates: string[] = [];
+    for (const f of result.findings) {
+      if (f.rawData && typeof f.rawData['location'] === 'string' && f.rawData['location']) {
+        emailLocs.push(f.rawData['location'] as string);
+      }
+      if (f.rawData && typeof f.rawData['date'] === 'string' && f.rawData['date']) {
+        emailDates.push(f.rawData['date'] as string);
+      }
+    }
+    if (emailLocs.length > 0 || emailDates.length > 0) {
+      await runLocationCollector(ctx, emailLocs, emailDates);
+    }
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// ---- Wayback Machine Archive runner ----
+async function runWebArchiveCollector(ctx: OrchestratorContext, domain: string): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'web_archive');
+  try {
+    const result = await collectWebArchive(domain);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = result.collectedAt;
+
+    if (result.totalSnapshotsFound > 0) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'historical_archive',
+        subcategory: 'wayback_snapshots',
+        type: 'archive_history_summary',
+        value: `${result.totalSnapshotsFound} snapshots archived (First seen: ${result.firstSeen ?? 'unknown'})`,
+        rawData: { ...result },
+        confidence: 'high',
+        severity: 'info',
+        sourceUrl: `https://web.archive.org/web/*/${result.domain}`,
+        sourceName: result.source,
+        firstSeen: result.firstSeen ?? ts,
+        lastSeen: result.lastSeen ?? ts,
+        isInferred: false,
+        notes: `Domain first archived on ${result.firstSeen}. Latest snapshot: ${result.lastSeen}.`,
+      });
+
+      for (const p of result.interestingPaths) {
+        findings.push({
+          investigationId: ctx.investigationId,
+          collectorExecutionId: execId,
+          category: 'historical_archive',
+          subcategory: 'interesting_endpoint',
+          type: 'archive_historical_path',
+          value: p,
+          rawData: { path: p, domain: result.domain },
+          confidence: 'medium',
+          severity: 'info',
+          sourceUrl: `https://web.archive.org/web/*/${result.domain}${p}`,
+          sourceName: result.source,
+          firstSeen: ts,
+          lastSeen: ts,
+          isInferred: false,
+          notes: `Historical endpoint indexed in Wayback Machine.`,
+        });
+      }
+    }
+
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, result.error ?? null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// ---- Tech Stack & Security Headers runner ----
+async function runTechStackCollector(ctx: OrchestratorContext, target: string): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'tech_stack');
+  try {
+    const result = await collectTechStack(target);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = result.collectedAt;
+
+    // Overall Security Grade
+    findings.push({
+      investigationId: ctx.investigationId,
+      collectorExecutionId: execId,
+      category: 'security_posture',
+      subcategory: 'security_headers',
+      type: 'security_hygiene_score',
+      value: `Grade: ${result.securityGrade} (Score: ${result.securityScore}/100)`,
+      rawData: { ...result },
+      confidence: 'high',
+      severity: result.securityScore < 50 ? 'high' : result.securityScore < 75 ? 'medium' : 'info',
+      sourceUrl: result.finalUrl,
+      sourceName: result.source,
+      firstSeen: ts,
+      lastSeen: ts,
+      isInferred: false,
+      notes: `Evaluated ${result.headersChecked.length} defense-in-depth headers. Missing critical: ${result.missingCriticalHeaders.join(', ') || 'None'}.`,
+    });
+
+    // Server & CDN/WAF
+    if (result.server || result.poweredBy) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'technology',
+        subcategory: 'web_server',
+        type: 'server_signature',
+        value: [result.server ? `Server: ${result.server}` : null, result.poweredBy ? `Powered-By: ${result.poweredBy}` : null].filter(Boolean).join(' | '),
+        rawData: { server: result.server, poweredBy: result.poweredBy },
+        confidence: 'high',
+        severity: 'info',
+        sourceUrl: result.finalUrl,
+        sourceName: result.source,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: 'Public web server banner exposed in HTTP headers.',
+      });
+    }
+
+    if (result.cdnWaf) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'technology',
+        subcategory: 'cdn_waf',
+        type: 'proxy_shield',
+        value: `Protected by ${result.cdnWaf}`,
+        rawData: { cdnWaf: result.cdnWaf },
+        confidence: 'high',
+        severity: 'info',
+        sourceUrl: result.finalUrl,
+        sourceName: result.source,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: `Traffic routed through ${result.cdnWaf} edge network. Origin server IP may be shielded.`,
+      });
+    }
+
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, result.error ?? null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// ---- Crypto Forensics runner ----
+async function runCryptoCollector(ctx: OrchestratorContext, address: string): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'crypto');
+  try {
+    const result = await collectCryptoWallet(address);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = result.collectedAt;
+
+    if (result.isValid) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'financial_forensics',
+        subcategory: result.network,
+        type: 'crypto_wallet_profile',
+        value: `${result.network.toUpperCase()}: ${result.address}`,
+        rawData: { ...result },
+        confidence: 'high',
+        severity: 'info',
+        sourceUrl: result.explorerUrl,
+        sourceName: result.source,
+        firstSeen: result.firstActivity ?? ts,
+        lastSeen: result.lastActivity ?? ts,
+        isInferred: false,
+        notes: [
+          result.balanceFormatted ? `Balance: ${result.balanceFormatted}` : null,
+          result.transactionCount != null ? `Transactions: ${result.transactionCount}` : null,
+          result.totalReceivedFormatted ? `Total Received: ${result.totalReceivedFormatted}` : null,
+        ].filter(Boolean).join(' | ') || `Valid ${result.network} blockchain address.`,
+      });
+
+      await persistRelationship(ctx.env.DB, {
+        investigationId: ctx.investigationId,
+        fromEntityType: 'crypto_wallet',
+        toEntityType: 'url',
+        fromValue: address,
+        toValue: result.explorerUrl,
+        relationshipType: 'affiliated_with',
+        findingId: null,
+        sourceUrl: result.explorerUrl,
+        confidence: 'high',
+        isInferred: false,
+        collectedAt: ts,
+        fromEntityId: '',
+        toEntityId: '',
+      });
+    }
+
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, result.error ?? null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// ---- Breach & Credential Exposure runner ----
+async function runBreachCollector(ctx: OrchestratorContext, target: string, targetType: 'email' | 'domain' | 'username'): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'breach');
+  try {
+    const result = await collectBreachIntelligence(target, targetType, ctx.env.HAVE_I_BEEN_PWNED_API_KEY);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = result.collectedAt;
+
+    if (result.isPwned) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'threat_intelligence',
+        subcategory: 'breach_exposure',
+        type: 'compromised_credential_alert',
+        value: `Compromised in ${result.breachCount} known breach event(s)`,
+        rawData: { ...result },
+        confidence: 'high',
+        severity: result.riskLevel === 'critical' ? 'critical' : result.riskLevel === 'high' ? 'high' : 'medium',
+        sourceUrl: null,
+        sourceName: result.source,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: `Compromised attributes: ${result.compromisedDataClasses.join(', ')}.`,
+      });
+
+      for (const b of result.breaches.slice(0, 10)) {
+        findings.push({
+          investigationId: ctx.investigationId,
+          collectorExecutionId: execId,
+          category: 'threat_intelligence',
+          subcategory: 'breach_event',
+          type: 'breach_record',
+          value: `${b.title} (${b.breachDate})`,
+          rawData: { ...b },
+          confidence: 'high',
+          severity: 'medium',
+          sourceUrl: b.domain ? `https://${b.domain}` : null,
+          sourceName: result.source,
+          firstSeen: b.breachDate || ts,
+          lastSeen: b.addedDate || ts,
+          isInferred: false,
+          notes: b.description,
+        });
+      }
+    } else {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'threat_intelligence',
+        subcategory: 'breach_exposure',
+        type: 'clean_exposure_status',
+        value: `No documented public data breaches recorded for ${target}.`,
+        rawData: { target, checkedAt: ts },
+        confidence: 'medium',
+        severity: 'none',
+        sourceUrl: null,
+        sourceName: result.source,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: 'Target was not identified in monitored public breach corpuses.',
+      });
+    }
+
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, result.error ?? null);
+  } catch (err) {
+    await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+// ---- Geolocation & Places Intelligence runner ----
+async function runLocationCollector(
+  ctx: OrchestratorContext,
+  locationClues: string[],
+  commitDates: string[] = []
+): Promise<void> {
+  const execId = await createCollectorExecution(ctx.env.DB, ctx.investigationId, 'location');
+  try {
+    const result = await collectLocationIntelligence(locationClues, commitDates);
+    const findings: Omit<Finding, 'id'>[] = [];
+    const ts = result.collectedAt;
+
+    // 1. Geocoded physical locations
+    for (const loc of result.resolvedLocations) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'location_intelligence',
+        subcategory: 'geocoding',
+        type: 'geocoded_location',
+        value: loc.displayName,
+        rawData: { ...loc },
+        confidence: loc.confidence,
+        severity: 'info',
+        sourceUrl: loc.googleMapsCoordUrl,
+        sourceName: loc.source,
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: `Physical Location: ${loc.city || ''} ${loc.state || ''} ${loc.country || ''} | Coordinates: ${loc.lat}, ${loc.lon} | Google Maps: ${loc.googleMapsCoordUrl}`,
+      });
+
+      // Connect the dots on the knowledge graph:
+      // Entity -> Location
+      await persistRelationship(ctx.env.DB, {
+        investigationId: ctx.investigationId,
+        fromEntityType: (['person', 'email', 'username', 'organization', 'ip'].includes(ctx.targetType) ? ctx.targetType : 'person') as any,
+        toEntityType: 'location',
+        fromValue: ctx.target,
+        toValue: loc.displayName,
+        relationshipType: 'located_in',
+        findingId: null,
+        sourceUrl: loc.googleMapsCoordUrl,
+        confidence: 'high',
+        isInferred: false,
+        collectedAt: ts,
+        fromEntityId: '',
+        toEntityId: '',
+      });
+
+      // Location -> Google Maps URL
+      await persistRelationship(ctx.env.DB, {
+        investigationId: ctx.investigationId,
+        fromEntityType: 'location',
+        toEntityType: 'url',
+        fromValue: loc.displayName,
+        toValue: loc.googleMapsCoordUrl,
+        relationshipType: 'resolves_to',
+        findingId: null,
+        sourceUrl: loc.googleMapsCoordUrl,
+        confidence: 'high',
+        isInferred: false,
+        collectedAt: ts,
+        fromEntityId: '',
+        toEntityId: '',
+      });
+    }
+
+    // 2. Commit Timezone Inferences
+    for (const tz of result.timezoneInferences) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'location_intelligence',
+        subcategory: 'timezone_inference',
+        type: 'commit_timezone_signature',
+        value: `${tz.timezoneName} (${tz.offset})`,
+        rawData: { ...tz },
+        confidence: 'medium',
+        severity: 'info',
+        sourceUrl: null,
+        sourceName: 'Git Timestamp Temporal Analysis',
+        firstSeen: tz.sampleCommitDate || ts,
+        lastSeen: tz.sampleCommitDate || ts,
+        isInferred: true,
+        notes: `Git author commit offset ${tz.offset} establishes regional presence in: ${tz.likelyRegions.join(', ')}. Sample commit: ${tz.sampleCommitDate || 'N/A'}.`,
+      });
+
+      for (const region of tz.likelyRegions) {
+        await persistRelationship(ctx.env.DB, {
+          investigationId: ctx.investigationId,
+          fromEntityType: (['person', 'email', 'username', 'organization', 'ip'].includes(ctx.targetType) ? ctx.targetType : 'person') as any,
+          toEntityType: 'location',
+          fromValue: ctx.target,
+          toValue: region,
+          relationshipType: 'located_in',
+          findingId: null,
+          sourceUrl: null,
+          confidence: 'medium',
+          isInferred: true,
+          collectedAt: ts,
+          fromEntityId: '',
+          toEntityId: '',
+        });
+      }
+    }
+
+    // If no locations could be resolved
+    if (findings.length === 0) {
+      findings.push({
+        investigationId: ctx.investigationId,
+        collectorExecutionId: execId,
+        category: 'location_intelligence',
+        subcategory: 'passive_recon',
+        type: 'no_location_clues',
+        value: `No physical location tags or commit timezones identified for ${ctx.target}.`,
+        rawData: { cluesChecked: locationClues, commitDatesChecked: commitDates },
+        confidence: 'medium',
+        severity: 'info',
+        sourceUrl: null,
+        sourceName: 'OpenSpective Geolocation Engine',
+        firstSeen: ts,
+        lastSeen: ts,
+        isInferred: false,
+        notes: 'Target does not expose public location clues or git commit timezone signatures in public profiles.',
+      });
+    }
+
+    await persistFindings(ctx.env.DB, findings);
+    await updateCollectorExecution(ctx.env.DB, execId, 'completed', findings.length, null);
   } catch (err) {
     await updateCollectorExecution(ctx.env.DB, execId, 'failed', 0, err instanceof Error ? err.message : 'Unknown error');
   }
@@ -876,6 +1455,9 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (shouldRun('certificate_transparency')) runners.push(() => runCertificateCollector(ctx, normalizedTarget));
         if (shouldRun('virustotal')) runners.push(() => runVtCollector(ctx, normalizedTarget, 'domain'));
         if (shouldRun('github')) runners.push(() => runGitHubCollector(ctx, normalizedTarget, false));
+        if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, normalizedTarget));
+        if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, normalizedTarget));
+        if (shouldRun('breach')) runners.push(() => runBreachCollector(ctx, normalizedTarget, 'domain'));
         break;
       }
 
@@ -889,12 +1471,16 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
 
         // Always run deep email & identity intelligence (git commit history, verified author names, Gravatar, handle footprint)
         if (shouldRun('email_identity')) runners.push(() => runEmailIdentityCollector(ctx, normalizedTarget));
+        if (shouldRun('breach')) runners.push(() => runBreachCollector(ctx, normalizedTarget, 'email'));
+        if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, []));
 
-        // For corporate/custom domains, also run infrastructure DNS/RDAP/CT
+        // For corporate/custom domains, also run infrastructure DNS/RDAP/CT/WebArchive
         if (!isConsumer) {
           if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, domain));
           if (shouldRun('rdap')) runners.push(() => runRdapCollector(ctx, domain, 'domain'));
           if (shouldRun('certificate_transparency')) runners.push(() => runCertificateCollector(ctx, domain));
+          if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, domain));
+          if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, domain));
         }
         break;
       }
@@ -903,6 +1489,7 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (shouldRun('rdap')) runners.push(() => runRdapCollector(ctx, normalizedTarget, 'ip'));
         if (shouldRun('ipinfo')) runners.push(() => runIpInfoCollector(ctx, normalizedTarget));
         if (shouldRun('virustotal')) runners.push(() => runVtCollector(ctx, normalizedTarget, 'ip'));
+        if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
         break;
       }
 
@@ -913,6 +1500,8 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
           if (shouldRun('url_metadata')) runners.push(() => runUrlMetadataCollector(ctx, normalizedTarget));
           if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, domain));
           if (shouldRun('virustotal')) runners.push(() => runVtCollector(ctx, normalizedTarget, 'url'));
+          if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, domain));
+          if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, normalizedTarget));
         } catch {
           // Invalid URL — skip
         }
@@ -922,6 +1511,16 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
       case 'username': {
         if (shouldRun('github')) runners.push(() => runGitHubCollector(ctx, normalizedTarget, true));
         if (shouldRun('username_presence')) runners.push(() => runUsernamePresenceCollector(ctx, normalizedTarget));
+        if (shouldRun('breach')) runners.push(() => runBreachCollector(ctx, normalizedTarget, 'username'));
+        if (detectCryptoNetwork(normalizedTarget) !== 'unknown' && shouldRun('crypto')) {
+          runners.push(() => runCryptoCollector(ctx, normalizedTarget));
+        }
+        if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
+        break;
+      }
+
+      case 'crypto_wallet': {
+        if (shouldRun('crypto')) runners.push(() => runCryptoCollector(ctx, normalizedTarget));
         break;
       }
 
@@ -931,6 +1530,9 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         const slug = normalizedTarget.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
         const candidateDomain = `${slug}.com`;
         if (shouldRun('dns')) runners.push(() => runDnsCollector(ctx, candidateDomain));
+        if (shouldRun('web_archive')) runners.push(() => runWebArchiveCollector(ctx, candidateDomain));
+        if (shouldRun('tech_stack')) runners.push(() => runTechStackCollector(ctx, candidateDomain));
+        if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
         break;
       }
 
@@ -940,6 +1542,7 @@ export async function runInvestigation(ctx: OrchestratorContext): Promise<void> 
         if (candidateSlug && candidateSlug.length >= 3 && candidateSlug.length <= 30 && shouldRun('username_presence')) {
           runners.push(() => runUsernamePresenceCollector(ctx, candidateSlug));
         }
+        if (shouldRun('location')) runners.push(() => runLocationCollector(ctx, [normalizedTarget]));
         break;
       }
 

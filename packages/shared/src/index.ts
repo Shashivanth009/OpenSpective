@@ -12,6 +12,7 @@ export type TargetType =
   | 'person'
   | 'organization'
   | 'phone'
+  | 'crypto_wallet'
   | 'unknown';
 
 // Investigation status
@@ -51,6 +52,7 @@ export type RelationshipType =
   | 'hosted_on'
   | 'owned_by'
   | 'affiliated_with'
+  | 'located_in'
   | 'mentions'
   | 'registered_to'
   | 'technology_uses'
@@ -69,6 +71,8 @@ export type NodeType =
   | 'certificate'
   | 'repository'
   | 'technology'
+  | 'crypto_wallet'
+  | 'location'
   | 'url';
 
 // ============================================================

@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   AlertTriangle, GitBranch, RefreshCw, Sparkles,
-  FileText, ChevronDown, ChevronRight
+  FileText, ChevronDown, ChevronRight, Clock,
+  ShieldCheck, BarChart3, CornerUpRight, ExternalLink,
+  Copy, Check, Database, MapPin
 } from 'lucide-react';
 import * as api from '../api.ts';
 
@@ -17,6 +19,8 @@ export default function InvestigationDetailPage() {
   const [analyzingAi, setAnalyzingAi] = useState(false);
   const [aiReport, setAiReport] = useState<any>(null);
   const [expandedFinding, setExpandedFinding] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'findings' | 'timeline' | 'scorecard'>('findings');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = async () => {
@@ -24,7 +28,7 @@ export default function InvestigationDetailPage() {
     try {
       const [invRes, findRes] = await Promise.all([
         api.getInvestigation(id),
-        api.getFindings(id, undefined, 1, 200),
+        api.getFindings(id, undefined, 1, 300),
       ]);
       setInvestigation(invRes.investigation);
       setExecutions(invRes.executions);
@@ -79,6 +83,187 @@ export default function InvestigationDetailPage() {
       alert(err?.message || 'Export failed.');
     }
   };
+
+  // Client-side OASIS STIX 2.1 Threat Intel Bundle generator
+  const handleExportStix = () => {
+    if (!investigation) return;
+    const now = new Date().toISOString();
+    const bundleId = `bundle--${Math.random().toString(36).slice(2, 11)}-${Date.now()}`;
+    const identityId = `identity--${Math.random().toString(36).slice(2, 11)}`;
+
+    const stixObjects: any[] = [
+      {
+        type: 'identity',
+        spec_version: '2.1',
+        id: identityId,
+        created: now,
+        modified: now,
+        name: 'OpenSpective Passive OSINT Platform',
+        identity_class: 'system',
+      },
+      {
+        type: 'observed-data',
+        spec_version: '2.1',
+        id: `observed-data--${Math.random().toString(36).slice(2, 11)}`,
+        created_by_ref: identityId,
+        created: now,
+        modified: now,
+        first_observed: investigation.started_at,
+        last_observed: investigation.completed_at || now,
+        number_observed: findings.length,
+        objects: {
+          '0': {
+            type: investigation.target_type === 'ip' ? 'ipv4-addr' : investigation.target_type === 'email' ? 'email-addr' : 'domain-name',
+            value: investigation.target,
+          },
+        },
+      },
+    ];
+
+    findings.forEach((f) => {
+      stixObjects.push({
+        type: 'indicator',
+        spec_version: '2.1',
+        id: `indicator--${Math.random().toString(36).slice(2, 11)}`,
+        created_by_ref: identityId,
+        created: f.first_seen || now,
+        modified: f.first_seen || now,
+        name: `${f.category}: ${f.type}`,
+        description: f.notes || f.value,
+        indicator_types: [f.severity === 'critical' || f.severity === 'high' ? 'malicious-activity' : 'anomalous-activity'],
+        pattern_type: 'stix',
+        pattern: `[artifact:payload_bin = '${f.value}']`,
+        valid_from: f.first_seen || now,
+        confidence: f.confidence === 'high' ? 90 : f.confidence === 'medium' ? 60 : 30,
+      });
+    });
+
+    const bundle = {
+      type: 'bundle',
+      id: bundleId,
+      objects: stixObjects,
+    };
+
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `stix2.1-${investigation.target}-${investigation.id}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const handleCopyRaw = (text: string, fid: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(fid);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // Helper to extract a pivotable target from a finding
+  const detectPivotTarget = (f: api.Finding): { target: string; type: string } | null => {
+    if (f.type === 'git_author_email' && f.value.includes('@')) {
+      return { target: f.value, type: 'email' };
+    }
+    if (f.type === 'account_presence') {
+      const match = f.value.match(/^[^:]+:\s*([^\s]+)/);
+      if (match && match[1]) return { target: match[1], type: 'username' };
+    }
+    if (f.type === 'git_commit') {
+      const match = f.value.match(/^([^@]+)@/);
+      if (match && match[1]) return { target: match[1], type: 'organization' };
+    }
+    if (f.type === 'dns_a' || f.type === 'dns_aaaa') {
+      return { target: f.value, type: 'ip' };
+    }
+    if (f.type === 'dns_mx') {
+      return { target: f.value, type: 'domain' };
+    }
+    if (f.type === 'github_profile') {
+      return { target: f.value, type: 'username' };
+    }
+    return null;
+  };
+
+  // Timeline events extracted and sorted chronologically
+  const timelineEvents = useMemo(() => {
+    return findings
+      .map(f => {
+        let eventDate = f.first_seen;
+        try {
+          const raw = typeof f.raw_data === 'string' ? JSON.parse(f.raw_data) : f.raw_data;
+          if (raw?.date) eventDate = raw.date;
+          else if (raw?.firstActivity) eventDate = raw.firstActivity;
+          else if (raw?.registeredAt) eventDate = raw.registeredAt;
+          else if (raw?.breachDate) eventDate = raw.breachDate;
+          else if (raw?.timestamp && raw.timestamp.length >= 8) {
+            const y = raw.timestamp.slice(0, 4);
+            const m = raw.timestamp.slice(4, 6);
+            const d = raw.timestamp.slice(6, 8);
+            eventDate = `${y}-${m}-${d}`;
+          }
+        } catch {
+          // ignore parse error
+        }
+
+        return {
+          id: f.id,
+          finding: f,
+          category: f.category,
+          type: f.type,
+          value: f.value,
+          notes: f.notes,
+          severity: f.severity,
+          source: f.source_name,
+          sourceUrl: f.source_url,
+          timestamp: eventDate || f.first_seen,
+        };
+      })
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [findings]);
+
+  // Executive Intelligence Scorecard calculations
+  const scorecard = useMemo(() => {
+    const total = findings.length;
+    const criticalCount = findings.filter(f => f.severity === 'critical').length;
+    const highCount = findings.filter(f => f.severity === 'high').length;
+    const mediumCount = findings.filter(f => f.severity === 'medium').length;
+
+    // Attribute depth
+    const emailsFound = findings.filter(f => f.category === 'identity_attribution' || f.type.includes('email')).length;
+    const commitsFound = findings.filter(f => f.category === 'developer_activity' || f.type === 'git_commit').length;
+    const profilesFound = findings.filter(f => f.category === 'social_profile' || f.category === 'public_profile').length;
+    const infraFound = findings.filter(f => f.category === 'dns' || f.category === 'rdap' || f.category === 'certificate' || f.category === 'technology').length;
+    const breachesFound = findings.filter(f => f.category === 'threat_intelligence' && f.type === 'breach_record').length;
+
+    let exposureScore = Math.min(100, Math.round(
+      (commitsFound * 12) +
+      (emailsFound * 20) +
+      (profilesFound * 8) +
+      (breachesFound * 25) +
+      (infraFound * 5)
+    ));
+    if (exposureScore === 0 && total > 0) exposureScore = 25;
+
+    let attributionLevel = 'Unverified Surface';
+    if (emailsFound > 0 && commitsFound > 0) attributionLevel = 'Directly Attributed (Verified Code Author)';
+    else if (emailsFound > 0 || profilesFound >= 3) attributionLevel = 'High Footprint Correlation';
+    else if (infraFound > 0) attributionLevel = 'Infrastructure Mapping';
+
+    return {
+      total,
+      criticalCount,
+      highCount,
+      mediumCount,
+      exposureScore,
+      attributionLevel,
+      emailsFound,
+      commitsFound,
+      profilesFound,
+      infraFound,
+      breachesFound,
+    };
+  }, [findings]);
 
   const filteredFindings = findings.filter(f => {
     const matchesCat = selectedCategory === 'all' || f.category.toLowerCase() === selectedCategory.toLowerCase();
@@ -146,7 +331,7 @@ export default function InvestigationDetailPage() {
                 {investigation.target}
               </h1>
               <span className="badge badge-neutral" style={{ textTransform: 'capitalize' }}>
-                {investigation.target_type}
+                {investigation.target_type.replace('_', ' ')}
               </span>
               {getStatusBadge(investigation.status)}
             </div>
@@ -183,6 +368,9 @@ export default function InvestigationDetailPage() {
               <button onClick={() => handleExport('csv')} className="btn btn-ghost btn-sm" title="Export CSV">
                 CSV
               </button>
+              <button onClick={handleExportStix} className="btn btn-ghost btn-sm" title="Export OASIS STIX 2.1 Threat Intel">
+                <ShieldCheck size={14} style={{ color: 'var(--color-accent)' }} /> STIX 2.1
+              </button>
               <button onClick={() => handleExport('html')} className="btn btn-ghost btn-sm" title="Download HTML Report">
                 <FileText size={16} /> Report
               </button>
@@ -198,9 +386,9 @@ export default function InvestigationDetailPage() {
       {/* Collector Executions Progress Row */}
       <div className="card" style={{ marginBottom: 'var(--space-6)', padding: 'var(--space-5)' }}>
         <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--color-dark)', marginBottom: 'var(--space-3)' }}>
-          Collector Execution Status
+          Active Intelligence Telemetry
         </h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-3)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
           {executions.map(exec => (
             <div key={exec.id} style={{
               padding: 'var(--space-3)',
@@ -213,7 +401,7 @@ export default function InvestigationDetailPage() {
             }}>
               <div>
                 <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-dark)' }}>
-                  {exec.collector_name}
+                  {exec.collector_name.replace('_', ' ')}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: 2 }}>
                   {exec.findings_count} findings
@@ -259,132 +447,378 @@ export default function InvestigationDetailPage() {
         </div>
       )}
 
-      {/* Findings Section */}
-      <div className="card">
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
-          <div>
-            <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, margin: 0 }}>
-              Discovered Findings ({findings.length})
-            </h2>
-          </div>
+      {/* View Switcher Tabs */}
+      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+        <button
+          onClick={() => setActiveTab('findings')}
+          className={`btn btn-sm ${activeTab === 'findings' ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          <Database size={15} /> Discovered Findings ({findings.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('timeline')}
+          className={`btn btn-sm ${activeTab === 'timeline' ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          <Clock size={15} /> Chronological Timeline ({timelineEvents.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('scorecard')}
+          className={`btn btn-sm ${activeTab === 'scorecard' ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          <BarChart3 size={15} /> Intelligence Scorecard
+        </button>
+      </div>
 
-          <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* Filter by Category */}
-            <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
-              {categories.map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`btn btn-xs ${selectedCategory === cat ? 'btn-primary' : 'btn-ghost'}`}
-                  style={{ textTransform: 'capitalize' }}
-                >
-                  {cat}
-                </button>
-              ))}
+      {/* TAB 1: FINDINGS TABLE */}
+      {activeTab === 'findings' && (
+        <div className="card">
+          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
+            <div>
+              <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, margin: 0 }}>
+                Discovered Findings ({filteredFindings.length})
+              </h2>
             </div>
 
-            {/* Search Input */}
-            <input
-              type="text"
-              className="input input-sm"
-              placeholder="Search findings..."
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              style={{ width: '180px' }}
-            />
-          </div>
-        </div>
+            <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Filter by Category */}
+              <div style={{ display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap' }}>
+                {categories.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`btn btn-xs ${selectedCategory === cat ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ textTransform: 'capitalize' }}
+                  >
+                    {cat.replace('_', ' ')}
+                  </button>
+                ))}
+              </div>
 
-        <div className="card-body" style={{ padding: 0 }}>
-          {filteredFindings.length === 0 ? (
-            <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-              No findings matched the selected criteria.
+              {/* Search Input */}
+              <input
+                type="text"
+                className="input input-sm"
+                placeholder="Search findings..."
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                style={{ width: '180px' }}
+              />
             </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="table" style={{ width: '100%' }}>
-                <thead>
-                  <tr>
-                    <th style={{ width: '120px' }}>Category</th>
-                    <th style={{ width: '140px' }}>Type</th>
-                    <th>Value</th>
-                    <th style={{ width: '100px' }}>Severity</th>
-                    <th style={{ width: '100px' }}>Confidence</th>
-                    <th style={{ width: '160px' }}>Source</th>
-                    <th style={{ width: '60px' }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredFindings.map(f => {
-                    const isExpanded = expandedFinding === f.id;
-                    return (
-                      <>
-                        <tr key={f.id} style={{ cursor: 'pointer' }} onClick={() => setExpandedFinding(isExpanded ? null : f.id)}>
-                          <td>
-                            <span className="badge badge-neutral" style={{ textTransform: 'capitalize' }}>
-                              {f.category}
-                            </span>
-                          </td>
-                          <td style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)' }}>
-                            {f.type}
-                          </td>
-                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', wordBreak: 'break-all' }}>
-                            {f.value}
-                            {f.notes && (
-                              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-sans)', marginTop: 2 }}>
-                                {f.notes}
-                              </div>
-                            )}
-                          </td>
-                          <td>{getSeverityBadge(f.severity)}</td>
-                          <td>
-                            <span style={{ fontSize: 'var(--text-xs)', textTransform: 'capitalize' }}>
-                              {f.confidence}
-                            </span>
-                          </td>
-                          <td style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
-                            {f.source_name}
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                          </td>
-                        </tr>
+          </div>
 
-                        {isExpanded && (
-                          <tr key={`${f.id}-expanded`} style={{ background: 'var(--color-surface-elevated)' }}>
-                            <td colSpan={7} style={{ padding: 'var(--space-4) var(--space-6)' }}>
-                              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-2)' }}>
-                                RAW ARTIFACT DATA (FIRST SEEN: {new Date(f.first_seen).toLocaleString()})
+          <div className="card-body" style={{ padding: 0 }}>
+            {filteredFindings.length === 0 ? (
+              <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                No findings matched the selected criteria.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="table" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: '120px' }}>Category</th>
+                      <th style={{ width: '140px' }}>Type</th>
+                      <th>Value</th>
+                      <th style={{ width: '100px' }}>Severity</th>
+                      <th style={{ width: '100px' }}>Confidence</th>
+                      <th style={{ width: '160px' }}>Source</th>
+                      <th style={{ width: '90px' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredFindings.map(f => {
+                      const isExpanded = expandedFinding === f.id;
+                      const pivot = detectPivotTarget(f);
+                      return (
+                        <>
+                          <tr key={f.id} style={{ cursor: 'pointer' }} onClick={() => setExpandedFinding(isExpanded ? null : f.id)}>
+                            <td>
+                              <span className="badge badge-neutral" style={{ textTransform: 'capitalize' }}>
+                                {f.category.replace('_', ' ')}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)' }}>
+                              {f.type}
+                            </td>
+                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', wordBreak: 'break-all' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                                <span>{f.value}</span>
+                                {f.source_url && (
+                                  <a
+                                    href={f.source_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="Open source URL in new tab"
+                                    style={{ color: 'var(--color-accent)', display: 'inline-flex' }}
+                                  >
+                                    <ExternalLink size={13} />
+                                  </a>
+                                )}
                               </div>
-                              <pre style={{
-                                margin: 0,
-                                padding: 'var(--space-3)',
-                                background: 'var(--color-surface)',
-                                borderRadius: 'var(--radius)',
-                                border: '1px solid var(--color-border)',
-                                fontSize: '11px',
-                                overflowX: 'auto',
-                              }}>
-                                {(() => {
-                                  try {
-                                    return JSON.stringify(JSON.parse(f.raw_data), null, 2);
-                                  } catch {
-                                    return f.raw_data;
-                                  }
-                                })()}
-                              </pre>
+                              {f.notes && (
+                                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-sans)', marginTop: 2 }}>
+                                  {f.notes}
+                                </div>
+                              )}
+                              {f.category === 'location_intelligence' && (
+                                <div style={{ marginTop: '6px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                  <a
+                                    href={f.source_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(f.value)}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="btn btn-xs"
+                                    style={{
+                                      background: '#fff1f2',
+                                      color: '#e11d48',
+                                      border: '1px solid #fecdd3',
+                                      fontWeight: 600,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      padding: '2px 8px'
+                                    }}
+                                  >
+                                    <MapPin size={12} /> Open in Google Maps
+                                  </a>
+                                </div>
+                              )}
+                            </td>
+                            <td>{getSeverityBadge(f.severity)}</td>
+                            <td>
+                              <span style={{ fontSize: 'var(--text-xs)', textTransform: 'capitalize' }}>
+                                {f.confidence}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
+                              {f.source_name}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 'var(--space-2)' }}>
+                                {pivot && (
+                                  <Link
+                                    to={`/investigate?q=${encodeURIComponent(pivot.target)}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="btn btn-xs btn-ghost"
+                                    title={`Pivot to new investigation on ${pivot.target}`}
+                                    style={{ color: 'var(--color-accent)' }}
+                                  >
+                                    <CornerUpRight size={14} />
+                                  </Link>
+                                )}
+                                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                              </div>
                             </td>
                           </tr>
-                        )}
-                      </>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+
+                          {isExpanded && (
+                            <tr key={`${f.id}-expanded`} style={{ background: 'var(--color-surface-elevated)' }}>
+                              <td colSpan={7} style={{ padding: 'var(--space-4) var(--space-6)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+                                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                                    RAW ARTIFACT DATA (FIRST SEEN: {new Date(f.first_seen).toLocaleString()})
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                                    {pivot && (
+                                      <Link
+                                        to={`/investigate?q=${encodeURIComponent(pivot.target)}`}
+                                        className="btn btn-xs btn-primary"
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                      >
+                                        <CornerUpRight size={12} /> Pivot to {pivot.target}
+                                      </Link>
+                                    )}
+                                    <button
+                                      onClick={() => handleCopyRaw(typeof f.raw_data === 'string' ? f.raw_data : JSON.stringify(f.raw_data, null, 2), f.id)}
+                                      className="btn btn-xs btn-ghost"
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                    >
+                                      {copiedId === f.id ? <Check size={12} /> : <Copy size={12} />}
+                                      {copiedId === f.id ? 'Copied' : 'Copy JSON'}
+                                    </button>
+                                  </div>
+                                </div>
+                                <pre style={{
+                                  margin: 0,
+                                  padding: 'var(--space-3)',
+                                  background: 'var(--color-surface)',
+                                  borderRadius: 'var(--radius)',
+                                  border: '1px solid var(--color-border)',
+                                  fontSize: '11px',
+                                  overflowX: 'auto',
+                                }}>
+                                  {(() => {
+                                    try {
+                                      return JSON.stringify(typeof f.raw_data === 'string' ? JSON.parse(f.raw_data) : f.raw_data, null, 2);
+                                    } catch {
+                                      return String(f.raw_data);
+                                    }
+                                  })()}
+                                </pre>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* TAB 2: CHRONOLOGICAL TIMELINE */}
+      {activeTab === 'timeline' && (
+        <div className="card" style={{ padding: 'var(--space-6)' }}>
+          <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, marginBottom: 'var(--space-6)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <Clock size={20} style={{ color: 'var(--color-accent)' }} /> Chronological Intelligence Timeline
+          </h2>
+
+          <div style={{ position: 'relative', paddingLeft: 'var(--space-6)', borderLeft: '2px solid var(--color-border)' }}>
+            {timelineEvents.map((evt) => (
+              <div key={evt.id} style={{ position: 'relative', marginBottom: 'var(--space-6)' }}>
+                {/* Timeline node dot */}
+                <div style={{
+                  position: 'absolute',
+                  left: 'calc(-1 * var(--space-6) - 5px)',
+                  top: '4px',
+                  width: '10px',
+                  height: '10px',
+                  borderRadius: '50%',
+                  background: evt.severity === 'critical' || evt.severity === 'high' ? 'var(--color-error)' : 'var(--color-accent)',
+                  boxShadow: '0 0 0 3px var(--color-bg)',
+                }} />
+
+                <div style={{
+                  background: 'var(--color-bg)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius)',
+                  padding: 'var(--space-4)',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      <span className="badge badge-neutral" style={{ textTransform: 'capitalize', fontSize: '11px' }}>
+                        {evt.category.replace('_', ' ')}
+                      </span>
+                      <strong style={{ fontSize: 'var(--text-sm)', color: 'var(--color-dark)' }}>
+                        {evt.type}
+                      </strong>
+                    </div>
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      {new Date(evt.timestamp).toLocaleDateString()} {new Date(evt.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', wordBreak: 'break-all' }}>
+                    {evt.value}
+                  </div>
+
+                  {evt.notes && (
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-2)' }}>
+                      {evt.notes}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-3)', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                    <span>Source: {evt.source}</span>
+                    {evt.sourceUrl && (
+                      <a href={evt.sourceUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--color-accent)', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                        Source artifact <ExternalLink size={11} />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: INTELLIGENCE SCORECARD */}
+      {activeTab === 'scorecard' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 'var(--space-6)' }}>
+          {/* Exposure Gauge Card */}
+          <div className="card" style={{ padding: 'var(--space-6)', textAlign: 'center' }}>
+            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 'var(--space-4)' }}>
+              Public Exposure & Surface Score
+            </h3>
+            <div style={{
+              fontSize: '48px',
+              fontWeight: 900,
+              color: scorecard.exposureScore >= 75 ? 'var(--color-accent)' : scorecard.exposureScore >= 40 ? 'var(--color-warning)' : 'var(--color-text-primary)',
+              lineHeight: 1,
+              marginBottom: 'var(--space-2)',
+            }}>
+              {scorecard.exposureScore}/100
+            </div>
+            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-dark)', marginBottom: 'var(--space-4)' }}>
+              {scorecard.attributionLevel}
+            </div>
+            <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
+              Calculated based on verified Git commits, cross-platform usernames, published public emails, historical archives, and public infrastructure exposure.
+            </p>
+          </div>
+
+          {/* Footprint Breakdown */}
+          <div className="card" style={{ padding: 'var(--space-6)' }}>
+            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 'var(--space-4)' }}>
+              Discovered Entity Breakdown
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 'var(--space-2)', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>Verified Developer Commits</span>
+                <strong style={{ color: 'var(--color-dark)' }}>{scorecard.commitsFound}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 'var(--space-2)', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>Correlated Email Identifiers</span>
+                <strong style={{ color: 'var(--color-dark)' }}>{scorecard.emailsFound}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 'var(--space-2)', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>Social & Registry Profiles</span>
+                <strong style={{ color: 'var(--color-dark)' }}>{scorecard.profilesFound}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 'var(--space-2)', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>Infrastructure & DNS Records</span>
+                <strong style={{ color: 'var(--color-dark)' }}>{scorecard.infraFound}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>Compromised Breach Records</span>
+                <strong style={{ color: scorecard.breachesFound > 0 ? 'var(--color-error)' : 'var(--color-dark)' }}>{scorecard.breachesFound}</strong>
+              </div>
+            </div>
+          </div>
+
+          {/* Threat & Severity Distribution */}
+          <div className="card" style={{ padding: 'var(--space-6)' }}>
+            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 'var(--space-4)' }}>
+              Severity & Risk Distribution
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+              <div style={{ padding: 'var(--space-3)', background: 'var(--color-bg)', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)' }}>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>Critical / High</div>
+                <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800, color: 'var(--color-error)' }}>
+                  {scorecard.criticalCount + scorecard.highCount}
+                </div>
+              </div>
+              <div style={{ padding: 'var(--space-3)', background: 'var(--color-bg)', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)' }}>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>Medium / Low</div>
+                <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800, color: 'var(--color-warning)' }}>
+                  {scorecard.mediumCount}
+                </div>
+              </div>
+              <div style={{ gridColumn: 'span 2', padding: 'var(--space-3)', background: 'var(--color-bg)', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)' }}>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>Total Intelligence Artifacts</div>
+                <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800, color: 'var(--color-accent)' }}>
+                  {scorecard.total}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

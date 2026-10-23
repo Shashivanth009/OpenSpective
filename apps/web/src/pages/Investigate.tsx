@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search, Shield, CheckCircle2, AlertCircle, Sparkles,
-  Globe, Mail, User, Network, Building, Link2, ArrowRight, Phone
+  Globe, Mail, User, Network, Building, Link2, ArrowRight, Phone, Coins
 } from 'lucide-react';
 import * as api from '../api.ts';
 
@@ -17,6 +17,11 @@ const MODULES_CONFIG = [
   { id: 'username_presence', name: 'Cross-Platform Username Footprint', desc: 'Verifies presence across GitHub, GitLab, HackerNews, PyPI, NPM, Keybase, DEV, and Hashnode', types: ['username', 'person'] },
   { id: 'email_identity', name: 'Email & Developer Attribution', desc: 'Discovers verified git commits, real author names, linked GitHub profiles, Gravatar accounts, and handle footprints', types: ['email'] },
   { id: 'url_metadata', name: 'URL Metadata & Headers', desc: 'HTTP response status, title, redirects, headers (single bounded request)', types: ['url'] },
+  { id: 'web_archive', name: 'Wayback Machine Archive', desc: 'Internet Archive CDX snapshots, historical discovery dates, and archived endpoints', types: ['domain', 'url', 'organization'] },
+  { id: 'tech_stack', name: 'Security Headers & Tech Stack', desc: 'Evaluates HSTS, CSP, X-Frame-Options, server headers, and CDN/WAF defenses', types: ['domain', 'url', 'organization'] },
+  { id: 'crypto', name: 'Blockchain & Crypto Forensics', desc: 'Analyzes Bitcoin, Ethereum, Solana, and TRON wallet balances, activity, and transactions', types: ['crypto_wallet', 'person', 'username'] },
+  { id: 'breach', name: 'Breach & Credential Exposure', desc: 'Checks targets against documented public breach datasets and credential exposure archives', types: ['email', 'domain', 'username'] },
+  { id: 'location', name: 'Geolocation & Places Intelligence', desc: 'Geocodes physical locations, profiles, and commit timezone signatures into coordinates with OpenStreetMap and Google Maps links', types: ['person', 'email', 'username', 'organization', 'ip'] },
 ];
 
 export default function InvestigatePage() {
@@ -27,7 +32,7 @@ export default function InvestigatePage() {
   const [target, setTarget] = useState(initialQuery);
   const [targetType, setTargetType] = useState<string>('auto');
   const [selectedModules, setSelectedModules] = useState<string[]>([
-    'dns', 'rdap', 'certificate_transparency', 'ipinfo', 'github', 'person_search', 'username_presence', 'email_identity', 'url_metadata'
+    'dns', 'rdap', 'certificate_transparency', 'ipinfo', 'github', 'person_search', 'username_presence', 'email_identity', 'url_metadata', 'web_archive', 'tech_stack', 'crypto', 'breach', 'location'
   ]);
   const [enableAi, setEnableAi] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -102,6 +107,7 @@ export default function InvestigatePage() {
       case 'organization': return <Building size={16} />;
       case 'url': return <Link2 size={16} />;
       case 'phone': return <Phone size={16} />;
+      case 'crypto_wallet': return <Coins size={16} />;
       default: return <Search size={16} />;
     }
   };
@@ -179,7 +185,7 @@ export default function InvestigatePage() {
           <div style={{ marginTop: 'var(--space-5)' }}>
             <label className="input-label" style={{ marginBottom: 'var(--space-2)' }}>Override Target Type (optional)</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-              {['auto', 'domain', 'ip', 'email', 'username', 'person', 'organization', 'url', 'phone'].map((t) => (
+              {['auto', 'domain', 'ip', 'email', 'username', 'person', 'organization', 'url', 'phone', 'crypto_wallet'].map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -187,7 +193,7 @@ export default function InvestigatePage() {
                   className={`btn btn-sm ${targetType === t ? 'btn-primary' : 'btn-secondary'}`}
                   style={{ textTransform: 'capitalize' }}
                 >
-                  {t === 'auto' ? '✨ Auto-Detect' : t}
+                  {t === 'auto' ? '✨ Auto-Detect' : t.replace('_', ' ')}
                 </button>
               ))}
             </div>

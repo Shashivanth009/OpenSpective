@@ -7,6 +7,8 @@
 // 5. HackerNews Discussions & Mentions
 // 6. Consumer vs Custom Domain Classification
 
+import { checkUsernamePresence } from './person.ts';
+
 export interface EmailIdentityFinding {
   category: string;
   subcategory?: string;
@@ -19,9 +21,9 @@ export interface EmailIdentityFinding {
   severity: 'info' | 'low' | 'medium' | 'high' | 'critical';
   rawData: Record<string, unknown>;
   relationships?: Array<{
-    toEntityType: 'person' | 'username' | 'repository' | 'organization' | 'url' | 'domain';
+    toEntityType: 'person' | 'username' | 'repository' | 'organization' | 'url' | 'domain' | 'location';
     toValue: string;
-    relationshipType: 'affiliated_with' | 'owned_by' | 'mentions' | 'resolves_to';
+    relationshipType: 'affiliated_with' | 'owned_by' | 'mentions' | 'resolves_to' | 'located_in';
   }>;
 }
 
@@ -421,62 +423,44 @@ async function searchGravatar(email: string): Promise<EmailIdentityFinding[]> {
 }
 
 // ---- 3. Multi-platform Handle Footprint for Email Username ----
-const PLATFORM_CHECKS: Array<{ name: string; urlTemplate: string; userKey: string }> = [
-  { name: 'GitHub', urlTemplate: 'https://github.com/{user}', userKey: 'github' },
-  { name: 'GitLab', urlTemplate: 'https://gitlab.com/{user}', userKey: 'gitlab' },
-  { name: 'HackerNews', urlTemplate: 'https://news.ycombinator.com/user?id={user}', userKey: 'hn' },
-  { name: 'PyPI', urlTemplate: 'https://pypi.org/user/{user}/', userKey: 'pypi' },
-  { name: 'NPM', urlTemplate: 'https://www.npmjs.com/~{user}', userKey: 'npm' },
-  { name: 'Keybase', urlTemplate: 'https://keybase.io/{user}', userKey: 'keybase' },
-  { name: 'DEV.to', urlTemplate: 'https://dev.to/{user}', userKey: 'devto' },
-  { name: 'Hashnode', urlTemplate: 'https://hashnode.com/@{user}', userKey: 'hashnode' },
-  { name: 'Pinterest', urlTemplate: 'https://www.pinterest.com/{user}/', userKey: 'pinterest' },
-  { name: 'Medium', urlTemplate: 'https://medium.com/@{user}', userKey: 'medium' },
-  { name: 'Linktree', urlTemplate: 'https://linktr.ee/{user}', userKey: 'linktree' },
-  { name: 'Reddit', urlTemplate: 'https://www.reddit.com/user/{user}/about.json', userKey: 'reddit' },
-];
-
 async function checkHandleFootprint(handle: string): Promise<EmailIdentityFinding[]> {
   const findings: EmailIdentityFinding[] = [];
 
-  const checks = PLATFORM_CHECKS.map(async (platform) => {
-    const url = platform.urlTemplate.replace('{user}', encodeURIComponent(handle));
-    try {
-      const resp = await fetch(url, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml,application/json',
-        },
+  const platformResults = await checkUsernamePresence(handle);
+  const found = platformResults.filter(r => r.status === 'found');
+
+  for (const r of found) {
+    const relationships: EmailIdentityFinding['relationships'] = [
+      { toEntityType: 'username', toValue: handle, relationshipType: 'affiliated_with' },
+      { toEntityType: 'url', toValue: r.url, relationshipType: 'affiliated_with' },
+    ];
+
+    if (r.location) {
+      relationships.push({
+        toEntityType: 'location',
+        toValue: r.location,
+        relationshipType: 'located_in',
       });
-
-      if (resp.status === 200) {
-        findings.push({
-          category: 'social_profile',
-          subcategory: platform.name.toLowerCase(),
-          type: 'account_presence',
-          value: `${platform.name}: ${handle}`,
-          notes: `Public profile active at ${url}`,
-          sourceUrl: url,
-          sourceName: `${platform.name} Public Web`,
-          confidence: 'medium',
-          severity: 'info',
-          rawData: { platform: platform.name, url, handle, status: 200 },
-          relationships: [
-            { toEntityType: 'username', toValue: handle, relationshipType: 'affiliated_with' },
-            { toEntityType: 'url', toValue: url, relationshipType: 'affiliated_with' },
-          ],
-        });
-      }
-    } catch {
-      // platform timeout / blocked
     }
-  });
 
-  // Batch in chunks of 4
-  for (let i = 0; i < checks.length; i += 4) {
-    await Promise.allSettled(checks.slice(i, i + 4));
+    findings.push({
+      category: 'social_profile',
+      subcategory: r.platform.toLowerCase(),
+      type: 'account_presence',
+      value: `${r.platform}: ${handle}`,
+      notes: [
+        `Public profile active at ${r.url}`,
+        r.displayName ? `Name: ${r.displayName}` : null,
+        r.location ? `Location: ${r.location}` : null,
+        r.bio ? `Bio: ${r.bio}` : null,
+      ].filter(Boolean).join(' | '),
+      sourceUrl: r.url,
+      sourceName: `${r.platform} Public Web`,
+      confidence: 'medium',
+      severity: 'info',
+      rawData: { platform: r.platform, url: r.url, handle, location: r.location, displayName: r.displayName },
+      relationships,
+    });
   }
 
   return findings;

@@ -3,6 +3,7 @@
 // AI is NOT used for classification — this is purely syntactic/regex-based.
 
 import type { TargetType, ClassificationResult, ConfidenceLevel } from '@openspective/shared';
+import { detectCryptoNetwork } from './collectors/crypto.ts';
 
 // Regex patterns
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
@@ -74,6 +75,8 @@ export function normalizeTarget(target: string, type: TargetType): string {
       // Remove spaces and hyphens, keep + and digits
       return trimmed.replace(/[\s\-().]/g, '');
     }
+    case 'crypto_wallet':
+      return trimmed;
     case 'person':
     case 'organization':
       // Title-case
@@ -125,6 +128,19 @@ export function classifyTarget(rawInput: string): ClassificationResult {
       normalizedTarget: input.toLowerCase(),
       confidence: 'high',
       alternatives: [],
+      validationMessage: null,
+      isAmbiguous: false,
+    };
+  }
+
+  // Cryptocurrency Wallet check (Bitcoin, Ethereum, Solana, TRON)
+  const cryptoNet = detectCryptoNetwork(input);
+  if (cryptoNet !== 'unknown') {
+    return {
+      targetType: 'crypto_wallet',
+      normalizedTarget: input,
+      confidence: 'high',
+      alternatives: ['username'],
       validationMessage: null,
       isAmbiguous: false,
     };
@@ -303,6 +319,12 @@ export function validateTargetForType(
       if (input.length < 2) return { valid: false, message: 'Organization name must be at least 2 characters.' };
       if (input.length > 200) return { valid: false, message: 'Organization name too long.' };
       return { valid: true, message: null };
+
+    case 'crypto_wallet': {
+      const net = detectCryptoNetwork(input);
+      if (net === 'unknown') return { valid: false, message: 'Invalid cryptocurrency address format (BTC, ETH, SOL, TRX supported).' };
+      return { valid: true, message: null };
+    }
 
     default:
       return { valid: false, message: 'Unknown target type.' };

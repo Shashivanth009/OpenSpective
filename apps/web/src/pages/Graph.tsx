@@ -11,7 +11,7 @@ import ReactFlow, {
   type Edge
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { GitBranch, ArrowLeft, RefreshCw, AlertCircle } from 'lucide-react';
+import { GitBranch, ArrowLeft, RefreshCw, AlertCircle, MapPin, ExternalLink } from 'lucide-react';
 import * as api from '../api.ts';
 
 // Color map for node types
@@ -23,6 +23,10 @@ const NODE_TYPE_COLORS: Record<string, string> = {
   organization: '#7c3aed',
   repository: '#40513B',
   email: '#0891b2',
+  location: '#e11d48',
+  crypto_wallet: '#f59e0b',
+  person: '#9333ea',
+  username: '#0284c7',
   url: '#4b5563',
   unknown: '#9ca3af',
 };
@@ -57,6 +61,8 @@ export default function GraphPage() {
         const y = isRoot ? 300 : 300 + Math.sin(idx * angleStep) * radius;
         const color = NODE_TYPE_COLORS[n.type.toLowerCase()] || '#609966';
 
+        const isLocation = n.type.toLowerCase() === 'location';
+
         return {
           id: n.id,
           type: 'default',
@@ -64,7 +70,17 @@ export default function GraphPage() {
           data: {
             label: (
               <div style={{ textAlign: 'center', padding: '4px' }}>
-                <div style={{ fontSize: '10px', textTransform: 'uppercase', color: '#6b7280', fontWeight: 700 }}>
+                <div style={{
+                  fontSize: '10px',
+                  textTransform: 'uppercase',
+                  color: isLocation ? '#e11d48' : '#6b7280',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px'
+                }}>
+                  {isLocation && <MapPin size={11} />}
                   {n.type}
                 </div>
                 <div style={{ fontSize: '12px', fontWeight: 600, color: '#111827', wordBreak: 'break-all' }}>
@@ -203,7 +219,7 @@ export default function GraphPage() {
             position: 'absolute',
             top: '20px',
             right: '20px',
-            width: '320px',
+            width: '340px',
             background: 'var(--color-surface)',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius)',
@@ -212,7 +228,16 @@ export default function GraphPage() {
             zIndex: 10,
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
-              <span className="badge badge-neutral" style={{ textTransform: 'capitalize' }}>
+              <span
+                className="badge"
+                style={{
+                  textTransform: 'capitalize',
+                  backgroundColor: `${NODE_TYPE_COLORS[selectedNode.type?.toLowerCase()] || '#6b7280'}20`,
+                  color: NODE_TYPE_COLORS[selectedNode.type?.toLowerCase()] || '#374151',
+                  border: `1px solid ${NODE_TYPE_COLORS[selectedNode.type?.toLowerCase()] || '#d1d5db'}`,
+                  fontWeight: 700,
+                }}
+              >
                 {selectedNode.type}
               </span>
               <button
@@ -231,12 +256,62 @@ export default function GraphPage() {
               Entity Identifier: <code>{selectedNode.id}</code>
             </div>
 
+            {/* Location Specific Map Actions */}
+            {selectedNode.type?.toLowerCase() === 'location' && (
+              <div style={{
+                background: '#fff1f2',
+                border: '1px solid #fecdd3',
+                borderRadius: 'var(--radius)',
+                padding: 'var(--space-3)',
+                marginBottom: 'var(--space-4)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--text-xs)', fontWeight: 700, color: '#be123c', marginBottom: 'var(--space-2)' }}>
+                  <MapPin size={14} /> Physical Geolocation Clue
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedNode.value || selectedNode.label)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-sm"
+                    style={{ background: '#e11d48', color: '#ffffff', border: 'none', justifyContent: 'center' }}
+                  >
+                    <ExternalLink size={14} /> Open in Google Maps
+                  </a>
+                  <a
+                    href={`https://www.openstreetmap.org/search?query=${encodeURIComponent(selectedNode.value || selectedNode.label)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-ghost btn-sm"
+                    style={{ justifyContent: 'center', color: '#be123c' }}
+                  >
+                    Open in OpenStreetMap
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {/* URL specific actions */}
+            {selectedNode.type?.toLowerCase() === 'url' && (
+              <div style={{ marginBottom: 'var(--space-4)' }}>
+                <a
+                  href={selectedNode.value || selectedNode.label}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  <ExternalLink size={14} /> Visit Discovered URL
+                </a>
+              </div>
+            )}
+
             <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 'var(--space-3)' }}>
               <div style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)' }}>
                 ATTRIBUTION & EDGES
               </div>
               <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', margin: 0, lineHeight: 1.5 }}>
-                Directly associated in the investigation corpus. Relationships are strictly grounded in public records.
+                Directly associated in the investigation corpus. Relationships are strictly grounded in public records and verified across open OSINT platforms.
               </p>
             </div>
           </div>

@@ -19,14 +19,27 @@ export interface PersonSearchResult {
   collectedAt: string;
 }
 
+export interface GitCommitRecord {
+  sha: string;
+  message: string;
+  repo: string;
+  repoUrl: string;
+  commitUrl: string;
+  authorName: string;
+  authorEmail: string;
+  date: string;
+}
+
 export interface PersonSearchResults {
   github: PersonSearchResult[];
+  gitCommits: GitCommitRecord[];
   wikipedia: PersonSearchResult[];
   wikidata: PersonSearchResult[];
   hackernews: PersonSearchResult[];
   collectedAt: string;
   errors: string[];
 }
+
 
 // ---- GitHub User Search ----
 async function searchGitHubByName(
@@ -103,6 +116,55 @@ async function searchGitHubByName(
     }
 
     return results;
+  } catch {
+    return [];
+  }
+}
+
+// ---- GitHub Commit Search by Author / Committer Name ----
+async function searchGitHubCommitsByAuthorName(
+  name: string,
+  token?: string
+): Promise<GitCommitRecord[]> {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github.cloak-preview+json, application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'OpenSpective/0.1',
+  };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  try {
+    const cleanName = name.replace(/['"]/g, '').trim();
+    const query = cleanName.includes(' ')
+      ? `author-name:"${cleanName}"`
+      : `author-name:${cleanName}`;
+    const url = `https://api.github.com/search/commits?q=${encodeURIComponent(query)}&per_page=10`;
+    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+    if (!resp.ok) return [];
+
+    const data = await resp.json() as { items?: unknown[] };
+    const items = data.items ?? [];
+    const commits: GitCommitRecord[] = [];
+
+    for (const item of items.slice(0, 10)) {
+      const it = item as Record<string, unknown>;
+      const commitObj = (it['commit'] as Record<string, unknown>) ?? {};
+      const authorObj = (commitObj['author'] as Record<string, unknown>) ?? {};
+      const repoObj = (it['repository'] as Record<string, unknown>) ?? {};
+
+      commits.push({
+        sha: String(it['sha'] ?? '').slice(0, 8),
+        message: (String(commitObj['message'] ?? '').split('\n')[0] ?? '').slice(0, 200),
+        repo: String(repoObj['full_name'] ?? ''),
+        repoUrl: String(repoObj['html_url'] ?? ''),
+        commitUrl: String(it['html_url'] ?? ''),
+        authorName: String(authorObj['name'] ?? ''),
+        authorEmail: String(authorObj['email'] ?? ''),
+        date: String(authorObj['date'] ?? ''),
+      });
+    }
+
+    return commits;
   } catch {
     return [];
   }
@@ -213,8 +275,9 @@ export async function collectPersonSearch(
   const collectedAt = new Date().toISOString();
   const errors: string[] = [];
 
-  const [githubResults, wikiResults, wikidataResults, hnResults] = await Promise.allSettled([
+  const [githubResults, commitsResult, wikiResults, wikidataResults, hnResults] = await Promise.allSettled([
     searchGitHubByName(name, githubToken),
+    searchGitHubCommitsByAuthorName(name, githubToken),
     searchWikipedia(name),
     searchWikidata(name),
     searchHackerNews(name),
@@ -222,6 +285,7 @@ export async function collectPersonSearch(
 
   return {
     github: githubResults.status === 'fulfilled' ? githubResults.value : (errors.push('GitHub search failed'), []),
+    gitCommits: commitsResult.status === 'fulfilled' ? commitsResult.value : (errors.push('Git commits search failed'), []),
     wikipedia: wikiResults.status === 'fulfilled' ? wikiResults.value : (errors.push('Wikipedia search failed'), []),
     wikidata: wikidataResults.status === 'fulfilled' ? wikidataResults.value : (errors.push('Wikidata search failed'), []),
     hackernews: hnResults.status === 'fulfilled' ? hnResults.value : (errors.push('HackerNews search failed'), []),
@@ -233,20 +297,134 @@ export async function collectPersonSearch(
 // ---- Username search across platforms ----
 export interface UsernameCheckResult {
   platform: string;
+  category: 'developer' | 'social' | 'community' | 'creative' | 'gaming' | 'audio' | 'finance';
   url: string;
   status: 'found' | 'not_found' | 'unknown';
+  location?: string | null;
+  bio?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
   collectedAt: string;
 }
 
-const USERNAME_PLATFORMS: Array<{ name: string; url: string; userKey: string }> = [
-  { name: 'GitHub', url: 'https://github.com/{user}', userKey: 'github' },
-  { name: 'GitLab', url: 'https://gitlab.com/{user}', userKey: 'gitlab' },
-  { name: 'HackerNews', url: 'https://news.ycombinator.com/user?id={user}', userKey: 'hn' },
-  { name: 'NPM', url: 'https://www.npmjs.com/~{user}', userKey: 'npm' },
-  { name: 'PyPI', url: 'https://pypi.org/user/{user}/', userKey: 'pypi' },
-  { name: 'Keybase', url: 'https://keybase.io/{user}', userKey: 'keybase' },
-  { name: 'DEV.to', url: 'https://dev.to/{user}', userKey: 'devto' },
-  { name: 'Hashnode', url: 'https://hashnode.com/@{user}', userKey: 'hashnode' },
+interface PlatformDefinition {
+  name: string;
+  category: UsernameCheckResult['category'];
+  url: string;
+  checkUrl?: string;
+  userKey: string;
+  customCheck?: (resp: Response, bodyText: string) => Promise<{ found: boolean; location?: string; bio?: string; name?: string; avatar?: string } | boolean>;
+}
+
+export const USERNAME_PLATFORMS: PlatformDefinition[] = [
+  // Developer & Coding
+  { name: 'GitHub', category: 'developer', url: 'https://github.com/{user}', userKey: 'github' },
+  { name: 'GitLab', category: 'developer', url: 'https://gitlab.com/{user}', userKey: 'gitlab' },
+  { name: 'Bitbucket', category: 'developer', url: 'https://bitbucket.org/{user}/', userKey: 'bitbucket' },
+  {
+    name: 'DockerHub',
+    category: 'developer',
+    url: 'https://hub.docker.com/u/{user}',
+    checkUrl: 'https://hub.docker.com/v2/users/{user}/',
+    userKey: 'dockerhub',
+    customCheck: async (resp, text) => {
+      if (resp.status === 200) {
+        try {
+          const d = JSON.parse(text);
+          return { found: true, name: d.full_name || d.username, bio: d.location || null, location: d.location || null };
+        } catch {
+          return true;
+        }
+      }
+      return false;
+    },
+  },
+  { name: 'HackerNews', category: 'developer', url: 'https://news.ycombinator.com/user?id={user}', userKey: 'hn' },
+  { name: 'NPM', category: 'developer', url: 'https://www.npmjs.com/~{user}', userKey: 'npm' },
+  { name: 'PyPI', category: 'developer', url: 'https://pypi.org/user/{user}/', userKey: 'pypi' },
+  { name: 'Keybase', category: 'developer', url: 'https://keybase.io/{user}', userKey: 'keybase' },
+  { name: 'DEV.to', category: 'developer', url: 'https://dev.to/{user}', userKey: 'devto' },
+  { name: 'Hashnode', category: 'developer', url: 'https://hashnode.com/@{user}', userKey: 'hashnode' },
+  { name: 'LeetCode', category: 'developer', url: 'https://leetcode.com/{user}/', userKey: 'leetcode' },
+  { name: 'Codeforces', category: 'developer', url: 'https://codeforces.com/profile/{user}', userKey: 'codeforces' },
+  { name: 'Replit', category: 'developer', url: 'https://replit.com/@{user}', userKey: 'replit' },
+  { name: 'Kaggle', category: 'developer', url: 'https://www.kaggle.com/{user}', userKey: 'kaggle' },
+  { name: 'HuggingFace', category: 'developer', url: 'https://huggingface.co/{user}', userKey: 'huggingface' },
+
+  // Social & Community
+  {
+    name: 'Reddit',
+    category: 'community',
+    url: 'https://www.reddit.com/user/{user}',
+    checkUrl: 'https://www.reddit.com/user/{user}/about.json',
+    userKey: 'reddit',
+    customCheck: async (resp, text) => {
+      if (resp.status === 200) {
+        try {
+          const d = JSON.parse(text);
+          return d.kind === 't2' && !d.data?.is_suspended;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    },
+  },
+  { name: 'Medium', category: 'social', url: 'https://medium.com/@{user}', userKey: 'medium' },
+  { name: 'Substack', category: 'social', url: 'https://{user}.substack.com', userKey: 'substack' },
+  { name: 'Mastodon', category: 'social', url: 'https://mastodon.social/@{user}', userKey: 'mastodon' },
+  { name: 'Pinterest', category: 'social', url: 'https://www.pinterest.com/{user}/', userKey: 'pinterest' },
+  { name: 'Linktree', category: 'social', url: 'https://linktr.ee/{user}', userKey: 'linktree' },
+  { name: 'ProductHunt', category: 'community', url: 'https://www.producthunt.com/@{user}', userKey: 'producthunt' },
+  { name: 'BuyMeACoffee', category: 'finance', url: 'https://www.buymeacoffee.com/{user}', userKey: 'buymeacoffee' },
+  { name: 'Telegram', category: 'social', url: 'https://t.me/{user}', userKey: 'telegram' },
+
+  // Creative & Design
+  { name: 'Behance', category: 'creative', url: 'https://www.behance.net/{user}', userKey: 'behance' },
+  { name: 'Dribbble', category: 'creative', url: 'https://dribbble.com/{user}', userKey: 'dribbble' },
+  { name: 'Flickr', category: 'creative', url: 'https://www.flickr.com/people/{user}', userKey: 'flickr' },
+  { name: 'Vimeo', category: 'creative', url: 'https://vimeo.com/{user}', userKey: 'vimeo' },
+
+  // Audio & Media
+  { name: 'SoundCloud', category: 'audio', url: 'https://soundcloud.com/{user}', userKey: 'soundcloud' },
+  { name: 'Spotify', category: 'audio', url: 'https://open.spotify.com/user/{user}', userKey: 'spotify' },
+
+  // Gaming & Chess
+  {
+    name: 'Chess.com',
+    category: 'gaming',
+    url: 'https://www.chess.com/member/{user}',
+    checkUrl: 'https://api.chess.com/pub/player/{user}',
+    userKey: 'chess',
+    customCheck: async (resp, text) => {
+      if (resp.status === 200) {
+        try {
+          const d = JSON.parse(text);
+          return {
+            found: true,
+            name: d.name || d.username,
+            location: d.location || null,
+            avatar: d.avatar || null,
+          };
+        } catch {
+          return true;
+        }
+      }
+      return false;
+    },
+  },
+  {
+    name: 'Steam',
+    category: 'gaming',
+    url: 'https://steamcommunity.com/id/{user}',
+    userKey: 'steam',
+    customCheck: async (resp, text) => {
+      if (resp.status === 200) {
+        return !text.includes('The specified profile could not be found');
+      }
+      return false;
+    },
+  },
 ];
 
 export async function checkUsernamePresence(username: string): Promise<UsernameCheckResult[]> {
@@ -254,28 +432,71 @@ export async function checkUsernamePresence(username: string): Promise<UsernameC
   const results: UsernameCheckResult[] = [];
 
   const checks = USERNAME_PLATFORMS.map(async (platform) => {
-    const url = platform.url.replace('{user}', encodeURIComponent(username));
+    const targetUrl = platform.url.replace('{user}', encodeURIComponent(username));
+    const queryUrl = (platform.checkUrl || platform.url).replace('{user}', encodeURIComponent(username));
+
     try {
-      const resp = await fetch(url, {
+      const resp = await fetch(queryUrl, {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
         redirect: 'follow',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml',
+          Accept: 'text/html,application/xhtml+xml,application/json',
         },
       });
-      const status: UsernameCheckResult['status'] =
-        resp.status === 200 ? 'found' :
-        resp.status === 404 ? 'not_found' : 'unknown';
-      return { platform: platform.name, url, status, collectedAt };
+
+      let status: UsernameCheckResult['status'] = 'unknown';
+      let location: string | null = null;
+      let bio: string | null = null;
+      let displayName: string | null = null;
+      let avatarUrl: string | null = null;
+
+      if (platform.customCheck) {
+        const text = await resp.text().catch(() => '');
+        const checkResult = await platform.customCheck(resp, text);
+        if (typeof checkResult === 'object' && checkResult !== null) {
+          status = checkResult.found ? 'found' : 'not_found';
+          location = checkResult.location ?? null;
+          bio = checkResult.bio ?? null;
+          displayName = checkResult.name ?? null;
+          avatarUrl = checkResult.avatar ?? null;
+        } else {
+          status = checkResult ? 'found' : 'not_found';
+        }
+      } else {
+        if (resp.status === 200) {
+          status = 'found';
+        } else if (resp.status === 404) {
+          status = 'not_found';
+        }
+      }
+
+      return {
+        platform: platform.name,
+        category: platform.category,
+        url: targetUrl,
+        status,
+        location,
+        bio,
+        displayName,
+        avatarUrl,
+        collectedAt,
+      };
     } catch {
-      return { platform: platform.name, url, status: 'unknown' as const, collectedAt };
+      return {
+        platform: platform.name,
+        category: platform.category,
+        url: targetUrl,
+        status: 'unknown' as const,
+        collectedAt,
+      };
     }
   });
 
-  for (let i = 0; i < checks.length; i += 4) {
-    const batch = checks.slice(i, i + 4);
+  // Batch concurrently in sets of 6
+  for (let i = 0; i < checks.length; i += 6) {
+    const batch = checks.slice(i, i + 6);
     const batchResults = await Promise.allSettled(batch);
     for (const r of batchResults) {
       if (r.status === 'fulfilled') results.push(r.value);

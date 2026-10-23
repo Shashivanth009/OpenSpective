@@ -233,20 +233,27 @@ export default function InvestigationDetailPage() {
     const emailsFound = findings.filter(f => f.category === 'identity_attribution' || f.type.includes('email')).length;
     const commitsFound = findings.filter(f => f.category === 'developer_activity' || f.type === 'git_commit').length;
     const profilesFound = findings.filter(f => f.category === 'social_profile' || f.category === 'public_profile').length;
-    const infraFound = findings.filter(f => f.category === 'dns' || f.category === 'rdap' || f.category === 'certificate' || f.category === 'technology').length;
+    const infraFound = findings.filter(f => f.category === 'dns' || f.category === 'rdap' || f.category === 'certificate' || f.category === 'technology' || f.category === 'infrastructure').length;
     const breachesFound = findings.filter(f => f.category === 'threat_intelligence' && f.type === 'breach_record').length;
+    const portsAndCvesFound = findings.filter(f => f.type === 'passive_open_ports' || f.type === 'known_cve' || f.type === 'known_cves_summary').length;
+    const locationsFound = findings.filter(f => f.category === 'location_intelligence').length;
+    const phoneFound = findings.filter(f => f.category === 'identity' && (f.type === 'phone_profile' || f.type === 'osint_search_dork')).length;
+    const securityFinding = findings.find(f => f.type === 'dns_security_score' || f.type === 'security_hygiene_score');
 
     let exposureScore = Math.min(100, Math.round(
       (commitsFound * 12) +
       (emailsFound * 20) +
       (profilesFound * 8) +
       (breachesFound * 25) +
+      (portsAndCvesFound * 15) +
       (infraFound * 5)
     ));
     if (exposureScore === 0 && total > 0) exposureScore = 25;
 
     let attributionLevel = 'Unverified Surface';
     if (emailsFound > 0 && commitsFound > 0) attributionLevel = 'Directly Attributed (Verified Code Author)';
+    else if (phoneFound > 0) attributionLevel = 'Telephony & Carrier Allocated';
+    else if (portsAndCvesFound > 0) attributionLevel = 'Network & Service Vulnerability Exposure';
     else if (emailsFound > 0 || profilesFound >= 3) attributionLevel = 'High Footprint Correlation';
     else if (infraFound > 0) attributionLevel = 'Infrastructure Mapping';
 
@@ -262,6 +269,10 @@ export default function InvestigationDetailPage() {
       profilesFound,
       infraFound,
       breachesFound,
+      portsAndCvesFound,
+      locationsFound,
+      phoneFound,
+      securityScore: securityFinding?.value || null,
     };
   }, [findings]);
 
@@ -784,6 +795,30 @@ export default function InvestigationDetailPage() {
                 <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>Infrastructure & DNS Records</span>
                 <strong style={{ color: 'var(--color-dark)' }}>{scorecard.infraFound}</strong>
               </div>
+              {scorecard.portsAndCvesFound > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 'var(--space-2)', borderBottom: '1px solid var(--color-border)' }}>
+                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>Ports & Vulnerabilities (Shodan)</span>
+                  <strong style={{ color: 'var(--color-error)' }}>{scorecard.portsAndCvesFound}</strong>
+                </div>
+              )}
+              {scorecard.locationsFound > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 'var(--space-2)', borderBottom: '1px solid var(--color-border)' }}>
+                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>Geocoded Places & Coordinates</span>
+                  <strong style={{ color: 'var(--color-accent)' }}>{scorecard.locationsFound}</strong>
+                </div>
+              )}
+              {scorecard.phoneFound > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 'var(--space-2)', borderBottom: '1px solid var(--color-border)' }}>
+                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>E.164 Telephony & OSINT Dorks</span>
+                  <strong style={{ color: 'var(--color-accent)' }}>{scorecard.phoneFound}</strong>
+                </div>
+              )}
+              {scorecard.securityScore && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 'var(--space-2)', borderBottom: '1px solid var(--color-border)' }}>
+                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>Defensive Hygiene Posture</span>
+                  <strong style={{ color: 'var(--color-dark)', fontSize: '12px' }}>{scorecard.securityScore}</strong>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>Compromised Breach Records</span>
                 <strong style={{ color: scorecard.breachesFound > 0 ? 'var(--color-error)' : 'var(--color-dark)' }}>{scorecard.breachesFound}</strong>

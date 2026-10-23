@@ -706,7 +706,8 @@ tbody tr:hover { background: var(--color-bg-secondary); }
 }
 .investigate-input {
   width: 100%;
-  padding: var(--space-5) var(--space-6);
+  min-height: 62px;
+  padding: var(--space-4) var(--space-6);
   padding-right: 180px;
   font-size: var(--text-lg);
   background: var(--color-surface);
@@ -715,18 +716,31 @@ tbody tr:hover { background: var(--color-bg-secondary); }
   box-shadow: var(--shadow-lg);
   color: var(--color-text-primary);
   outline: none;
-  transition: all var(--transition);
+  transition: border-color var(--transition), box-shadow var(--transition);
 }
 .investigate-input:focus {
   border-color: var(--color-accent);
-  box-shadow: var(--shadow-lg), 0 0 0 4px rgba(96, 153, 102, 0.12);
+  box-shadow: var(--shadow-lg), 0 0 0 4px rgba(37, 99, 235, 0.15);
 }
 .investigate-input::placeholder { color: var(--color-text-muted); }
 .investigate-btn {
   position: absolute;
   right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xl);
+  transform: none !important;
+  transition: background var(--transition), box-shadow var(--transition), opacity var(--transition);
+}
+.investigate-btn:hover:not(:disabled) {
+  transform: none !important;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.45);
+}
+.investigate-btn:active:not(:disabled) {
+  transform: none !important;
 }
 
 /* ---- Classification Badge ---- */

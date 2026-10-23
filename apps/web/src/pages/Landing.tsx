@@ -182,7 +182,7 @@ export default function LandingPage() {
 
             {/* CTA */}
             <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'center', marginTop: 'var(--space-10)', flexWrap: 'wrap' }}>
-              <Link to="/investigate" className="btn btn-primary btn-lg" id="hero-investigate-btn">
+              <Link to="/investigate" className="btn btn-primary btn-lg" id="hero-start-investigation-cta">
                 Start Investigation <ArrowRight size={18} />
               </Link>
               <Link to="/dashboard" className="btn btn-secondary btn-lg">

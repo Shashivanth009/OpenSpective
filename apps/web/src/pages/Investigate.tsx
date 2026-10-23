@@ -52,6 +52,8 @@ export default function InvestigatePage() {
   });
   const [enableAi, setEnableAi] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [launchProgress, setLaunchProgress] = useState(0);
+  const [launchStepText, setLaunchStepText] = useState('');
   const [classifying, setClassifying] = useState(false);
   const [classification, setClassification] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,19 +99,38 @@ export default function InvestigatePage() {
 
     setError(null);
     setLoading(true);
+    setLaunchProgress(15);
+    setLaunchStepText('Classifying target & assembling selected OSINT engines...');
+
+    const interval = setInterval(() => {
+      setLaunchProgress((prev) => {
+        if (prev < 40) return prev + 12;
+        if (prev < 80) return prev + 8;
+        if (prev < 95) return prev + 3;
+        return prev;
+      });
+    }, 200);
 
     try {
       const typeToSend = targetType === 'auto' ? undefined : targetType;
+      setLaunchStepText(`Dispatching ${selectedModules.length} intelligence collectors across edge network...`);
       const res = await api.createInvestigation(
         target.trim(),
         typeToSend,
         selectedModules,
         enableAi
       );
-      navigate(`/investigations/${res.investigation.id}`);
+      setLaunchProgress(100);
+      setLaunchStepText('Investigation queued successfully! Transferring to live telemetry...');
+      clearInterval(interval);
+      setTimeout(() => {
+        navigate(`/investigations/${res.investigation.id}`);
+      }, 350);
     } catch (err: any) {
+      clearInterval(interval);
       setError(err?.message || 'Failed to start investigation. Please verify inputs.');
       setLoading(false);
+      setLaunchProgress(0);
     }
   };
 
@@ -302,6 +323,55 @@ export default function InvestigatePage() {
           </div>
         </div>
 
+        {/* Live OSINT Engine Deployment Status Block Element */}
+        {loading && (
+          <div className="card" style={{
+            marginBottom: 'var(--space-6)',
+            padding: 'var(--space-6)',
+            border: '2px solid var(--color-accent)',
+            background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(16, 185, 129, 0.05) 100%)',
+            boxShadow: '0 0 24px rgba(37, 99, 235, 0.16)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                <span className="spinner" style={{ width: 22, height: 22 }} />
+                <div>
+                  <strong style={{ fontSize: 'var(--text-base)', color: 'var(--color-dark)' }}>
+                    Deploying OSINT Reconnaissance Engines
+                  </strong>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    {launchStepText}
+                  </div>
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '1.75rem', fontWeight: 900, fontFamily: 'var(--font-mono)', color: 'var(--color-accent)', lineHeight: 1 }}>
+                  {launchProgress}%
+                </span>
+                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                  Deployment Status
+                </div>
+              </div>
+            </div>
+
+            <div style={{ width: '100%', height: '8px', background: 'var(--color-border)', borderRadius: '999px', overflow: 'hidden', marginBottom: 'var(--space-3)' }}>
+              <div style={{
+                height: '100%',
+                width: `${launchProgress}%`,
+                background: 'linear-gradient(90deg, #2563eb 0%, #3b82f6 50%, #10b981 100%)',
+                borderRadius: '999px',
+                transition: 'width 0.2s ease',
+                boxShadow: '0 0 10px rgba(37, 99, 235, 0.4)'
+              }} />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+              <span>Target: <strong>{target}</strong> ({activeTargetType})</span>
+              <span><strong>{selectedModules.length}</strong> OSINT Engines Initialized</span>
+            </div>
+          </div>
+        )}
+
         {/* Submit Button */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-4)' }}>
           <button
@@ -313,7 +383,7 @@ export default function InvestigatePage() {
             {loading ? (
               <>
                 <span className="spinner" />
-                Initializing Engines...
+                Initializing Engines ({launchProgress}%)...
               </>
             ) : (
               <>

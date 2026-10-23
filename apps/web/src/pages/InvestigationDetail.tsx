@@ -23,6 +23,7 @@ export default function InvestigationDetailPage() {
   const [dorkEngineFilter, setDorkEngineFilter] = useState<string>('all');
   const [selectedCollector, setSelectedCollector] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
 
   const COLLECTOR_OSINT_META: Record<string, { label: string; suite: string; icon: string }> = {
@@ -78,15 +79,36 @@ export default function InvestigationDetailPage() {
   useEffect(() => {
     fetchData();
 
-    // Auto-poll if running
+    // Auto-poll every 1000ms while running or queued for real-time telemetry updates
     let timer: ReturnType<typeof setInterval> | undefined;
     if (investigation?.status === 'running' || investigation?.status === 'queued') {
       timer = setInterval(() => {
         fetchData();
-      }, 3000);
+      }, 1000);
     }
     return () => clearInterval(timer);
   }, [id, investigation?.status]);
+
+  // Live timer ticker for scan execution duration
+  useEffect(() => {
+    if (!investigation) return;
+    const isScanning = investigation.status === 'running' || investigation.status === 'queued';
+    if (!isScanning) {
+      if (investigation.completed_at && investigation.started_at) {
+        const diff = Math.max(0, Math.round((new Date(investigation.completed_at).getTime() - new Date(investigation.started_at).getTime()) / 1000));
+        setElapsedSeconds(diff);
+      }
+      return;
+    }
+
+    const startTs = new Date(investigation.started_at).getTime();
+    const updateElapsed = () => {
+      setElapsedSeconds(Math.max(0, Math.round((Date.now() - startTs) / 1000)));
+    };
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 500);
+    return () => clearInterval(interval);
+  }, [investigation?.started_at, investigation?.completed_at, investigation?.status]);
 
   const handleRunAiAnalysis = async () => {
     if (!id) return;
@@ -375,9 +397,9 @@ export default function InvestigationDetailPage() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'completed': return <span className="badge badge-success">Completed</span>;
-      case 'running': return <span className="badge badge-info"><span className="spinner" style={{ width: 10, height: 10 }} /> Running</span>;
-      case 'queued': return <span className="badge badge-warning">Queued</span>;
+      case 'completed': return <span className="badge badge-success">✓ 100% Done</span>;
+      case 'running': return <span className="badge badge-info"><span className="spinner" style={{ width: 10, height: 10 }} /> Scanning...</span>;
+      case 'queued': return <span className="badge badge-warning">⏳ Queued</span>;
       case 'partial': return <span className="badge badge-warning">Partial</span>;
       case 'failed': return <span className="badge badge-error">Failed</span>;
       default: return <span className="badge badge-neutral">{status}</span>;
@@ -415,6 +437,33 @@ export default function InvestigationDetailPage() {
         </Link>
       </div>
     );
+  }
+
+  // Live progress metrics
+  const totalExecutions = executions.length;
+  const completedExecutions = executions.filter(e => e.status === 'completed').length;
+  const runningExecutions = executions.filter(e => e.status === 'running').length;
+  const queuedExecutions = executions.filter(e => e.status === 'queued').length;
+  const failedExecutions = executions.filter(e => e.status === 'failed').length;
+
+  const runningToolNames = executions
+    .filter(e => e.status === 'running')
+    .map(e => COLLECTOR_OSINT_META[e.collector_name]?.label || e.collector_name.replace(/_/g, ' '));
+
+  let progressPercent = 0;
+  if (investigation.status === 'completed') {
+    progressPercent = 100;
+  } else if (investigation.status === 'partial') {
+    progressPercent = 95;
+  } else if (investigation.status === 'failed') {
+    progressPercent = 100;
+  } else if (totalExecutions > 0) {
+    const weighted = completedExecutions + failedExecutions + (runningExecutions * 0.5);
+    progressPercent = Math.min(95, Math.max(12, Math.round((weighted / totalExecutions) * 100)));
+  } else if (investigation.status === 'running') {
+    progressPercent = 25;
+  } else if (investigation.status === 'queued') {
+    progressPercent = 8;
   }
 
   return (
@@ -476,6 +525,207 @@ export default function InvestigationDetailPage() {
             <button onClick={fetchData} className="btn btn-ghost btn-sm" title="Refresh">
               <RefreshCw size={16} />
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ======================================================== */}
+      {/* PROMINENT SCAN STATUS & LIVE TELEMETRY BLOCK ELEMENT     */}
+      {/* ======================================================== */}
+      <div
+        className="card"
+        style={{
+          marginBottom: 'var(--space-6)',
+          padding: 'var(--space-6)',
+          background: investigation.status === 'running'
+            ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(16, 185, 129, 0.05) 100%)'
+            : investigation.status === 'completed'
+            ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.06) 0%, rgba(37, 99, 235, 0.03) 100%)'
+            : 'var(--color-surface)',
+          border: investigation.status === 'running'
+            ? '1.5px solid var(--color-accent)'
+            : '1.5px solid var(--color-border)',
+          boxShadow: investigation.status === 'running'
+            ? '0 0 24px rgba(37, 99, 235, 0.16)'
+            : 'var(--shadow-sm)',
+          position: 'relative',
+          overflow: 'hidden'
+        }}
+      >
+        {/* Top Header Row inside Block */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            {investigation.status === 'running' ? (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 38,
+                height: 38,
+                borderRadius: '50%',
+                background: 'rgba(37, 99, 235, 0.15)',
+                color: 'var(--color-accent)',
+                flexShrink: 0
+              }}>
+                <span className="spinner" style={{ width: 20, height: 20 }} />
+              </span>
+            ) : investigation.status === 'completed' ? (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 38,
+                height: 38,
+                borderRadius: '50%',
+                background: 'rgba(16, 185, 129, 0.15)',
+                color: 'var(--color-success)',
+                flexShrink: 0
+              }}>
+                <Check size={22} />
+              </span>
+            ) : (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 38,
+                height: 38,
+                borderRadius: '50%',
+                background: 'rgba(234, 179, 8, 0.15)',
+                color: 'var(--color-warning)',
+                flexShrink: 0
+              }}>
+                <Clock size={20} />
+              </span>
+            )}
+
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 800, margin: 0, color: 'var(--color-dark)' }}>
+                  {investigation.status === 'running'
+                    ? 'OSINT Scan In Progress'
+                    : investigation.status === 'completed'
+                    ? 'Scan Complete — Reconnaissance Surface Mapped'
+                    : investigation.status === 'partial'
+                    ? 'Scan Complete (Partial Coverage)'
+                    : `Investigation Status: ${investigation.status.toUpperCase()}`}
+                </h2>
+                {getStatusBadge(investigation.status)}
+              </div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: '3px' }}>
+                {investigation.status === 'running'
+                  ? runningToolNames.length > 0
+                    ? `Currently Executing: ${runningToolNames.join(', ')}`
+                    : 'Dispatching background intelligence workers...'
+                  : `All ${totalExecutions} OSINT engines finished analysis on ${investigation.target}`}
+              </div>
+            </div>
+          </div>
+
+          {/* Big Percentage Badge */}
+          <div style={{ textAlign: 'right' }}>
+            <div style={{
+              fontSize: '2rem',
+              fontWeight: 900,
+              fontFamily: 'var(--font-mono)',
+              color: investigation.status === 'completed'
+                ? '#059669'
+                : 'var(--color-accent)',
+              lineHeight: 1
+            }}>
+              {progressPercent}%
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600, marginTop: '3px' }}>
+              Execution Progress
+            </div>
+          </div>
+        </div>
+
+        {/* Dynamic Progress Bar */}
+        <div style={{
+          width: '100%',
+          height: '10px',
+          background: 'var(--color-border)',
+          borderRadius: '999px',
+          overflow: 'hidden',
+          marginBottom: 'var(--space-4)',
+          position: 'relative'
+        }}>
+          <div style={{
+            height: '100%',
+            width: `${progressPercent}%`,
+            background: investigation.status === 'completed'
+              ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)'
+              : 'linear-gradient(90deg, #2563eb 0%, #3b82f6 50%, #10b981 100%)',
+            borderRadius: '999px',
+            transition: 'width 0.3s ease',
+            boxShadow: '0 0 10px rgba(37, 99, 235, 0.4)'
+          }} />
+        </div>
+
+        {/* Multi-Stat Telemetry Badges Strip */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+          gap: 'var(--space-3)',
+          background: 'var(--color-surface)',
+          padding: 'var(--space-3) var(--space-4)',
+          borderRadius: 'var(--radius)',
+          border: '1px solid var(--color-border-subtle)'
+        }}>
+          <div>
+            <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-muted)', fontWeight: 700 }}>
+              Engines Executed
+            </div>
+            <div style={{ fontSize: 'var(--text-base)', fontWeight: 800, color: 'var(--color-dark)', marginTop: '2px' }}>
+              {completedExecutions} <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 500 }}>/ {totalExecutions} Tools</span>
+            </div>
+            {runningExecutions > 0 && (
+              <div style={{ fontSize: '10px', color: 'var(--color-accent)', fontWeight: 600 }}>
+                {runningExecutions} running, {queuedExecutions} queued
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-muted)', fontWeight: 700 }}>
+              Discovered Findings
+            </div>
+            <div style={{ fontSize: 'var(--text-base)', fontWeight: 800, color: '#059669', marginTop: '2px' }}>
+              {findings.length} <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 500 }}>records</span>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-muted)', fontWeight: 700 }}>
+              Elapsed Time
+            </div>
+            <div style={{ fontSize: 'var(--text-base)', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--color-dark)', marginTop: '2px' }}>
+              {elapsedSeconds > 0 ? `${elapsedSeconds}s` : '< 1s'}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-muted)', fontWeight: 700 }}>
+              Critical / High Risks
+            </div>
+            <div style={{
+              fontSize: 'var(--text-base)',
+              fontWeight: 800,
+              color: (scorecard.criticalCount + scorecard.highCount) > 0 ? '#dc2626' : 'var(--color-text-secondary)',
+              marginTop: '2px'
+            }}>
+              {scorecard.criticalCount + scorecard.highCount} <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 500 }}>alerts</span>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-muted)', fontWeight: 700 }}>
+              Attribution Level
+            </div>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-dark)', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={scorecard.attributionLevel}>
+              {scorecard.attributionLevel}
+            </div>
           </div>
         </div>
       </div>
@@ -555,6 +805,29 @@ export default function InvestigationDetailPage() {
                       {durationMs}ms
                     </span>
                   )}
+                </div>
+
+                {/* Individual Tool Mini Progress Bar */}
+                <div style={{
+                  width: '100%',
+                  height: '4px',
+                  background: 'var(--color-border)',
+                  borderRadius: '2px',
+                  overflow: 'hidden',
+                  marginTop: '6px'
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: exec.status === 'completed' ? '100%' : exec.status === 'running' ? '65%' : exec.status === 'failed' ? '100%' : '15%',
+                    background: exec.status === 'completed'
+                      ? '#10b981'
+                      : exec.status === 'running'
+                      ? 'var(--color-accent)'
+                      : exec.status === 'failed'
+                      ? '#ef4444'
+                      : 'var(--color-border)',
+                    transition: 'width 0.3s ease'
+                  }} />
                 </div>
               </div>
             );

@@ -1119,8 +1119,23 @@ export default function InvestigationDetailPage() {
           zIndex: 1,
         }}
       >
+        {/* Animated Radar Sweep Recon Beam when scanning */}
+        {investigation.status === 'running' && (
+          <div
+            className="radar-sweep-beam"
+            style={{
+              top: '50%',
+              right: '60px',
+              width: '260px',
+              height: '260px',
+              opacity: 0.65,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+
         {/* Top Header Row inside Block */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', position: 'relative', zIndex: 2 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
             {investigation.status === 'running' ? (
               <span style={{

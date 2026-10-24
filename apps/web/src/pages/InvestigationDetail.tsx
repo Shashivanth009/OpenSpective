@@ -1257,9 +1257,7 @@ export default function InvestigationDetailPage() {
               fontSize: '2rem',
               fontWeight: 900,
               fontFamily: 'var(--font-mono)',
-              color: investigation.status === 'completed'
-                ? '#059669'
-                : 'var(--color-accent)',
+              color: 'var(--color-accent)',
               lineHeight: 1
             }}>
               {progressPercent}%
@@ -1320,7 +1318,7 @@ export default function InvestigationDetailPage() {
             <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-muted)', fontWeight: 700 }}>
               Discovered Findings
             </div>
-            <div style={{ fontSize: 'var(--text-base)', fontWeight: 800, color: '#059669', marginTop: '2px' }}>
+            <div style={{ fontSize: 'var(--text-base)', fontWeight: 800, color: 'var(--color-accent)', marginTop: '2px' }}>
               {findings.length} <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 500 }}>records</span>
             </div>
           </div>
@@ -1687,13 +1685,13 @@ export default function InvestigationDetailPage() {
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', marginBottom: '2px' }}>
                                     <strong style={{ fontSize: '13px', color: 'var(--color-dark)' }}>{f.value}</strong>
                                     {isVerified && (
-                                      <span className="badge badge-success" style={{ fontSize: '10px', padding: '1px 6px', display: 'inline-flex', alignItems: 'center', gap: '3px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>
+                                      <span className="badge badge-success" style={{ fontSize: '10px', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                                         <Check size={10} /> Verified Clue
                                       </span>
                                     )}
                                   </div>
                                   {f.notes && (
-                                    <div style={{ fontSize: '11.5px', color: isVerified ? '#059669' : 'var(--color-text-secondary)', lineHeight: 1.4 }}>
+                                    <div style={{ fontSize: '11.5px', color: isVerified ? 'var(--color-accent)' : 'var(--color-text-secondary)', lineHeight: 1.4 }}>
                                       {f.notes}
                                     </div>
                                   )}
@@ -2193,96 +2191,103 @@ export default function InvestigationDetailPage() {
       {activeTab === 'ai_synthesis' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
           {/* Main AI Dossier Container */}
-          <div
-            className="glass-card"
-            style={{
-              padding: 'var(--space-6)',
-              border: '1.5px solid var(--glass-border)',
-              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(37, 99, 235, 0.05) 100%)',
-              boxShadow: 'var(--glass-shadow)',
-              position: 'relative',
-              overflow: 'hidden'
-            }}
-          >
-            {/* Header with Title and Risk Verdict */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)', marginBottom: 'var(--space-5)' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-1)' }}>
-                  <Sparkles size={24} style={{ color: '#10b981' }} />
-                  <h2 style={{ fontSize: 'var(--text-2xl)', fontWeight: 800, margin: 0, color: 'var(--color-dark)' }}>
-                    Executive AI Intelligence Synthesis & Risk Verdict
-                  </h2>
-                </div>
-                <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap', marginTop: 'var(--space-2)' }}>
-                  <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <ShieldCheck size={12} /> Grounded on {findings.length} Observed OSINT Artifacts
-                  </span>
-                  <span className="glass-pill" style={{ fontSize: '11px' }}>
-                    Engine: {aiReport?.model || 'OpenSpective-Expert-Synthesizer'}
-                  </span>
-                  {aiReport?.generatedAt && (
-                    <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                      Synthesized: {new Date(aiReport.generatedAt).toLocaleString()}
-                    </span>
-                  )}
-                </div>
-              </div>
+          {(() => {
+            const aiFullText: string = aiReport?.fullResponse || aiReport?.technical_details || '';
+            const isCritical = aiFullText.includes('CRITICAL') || scorecard.criticalCount > 0;
+            const isHigh = aiFullText.includes('HIGH') || scorecard.highCount > 0;
+            const isModerate = aiFullText.includes('MODERATE') || scorecard.mediumCount > 0;
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                {/* Risk Level Badge */}
-                {aiReport && (
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-text-muted)', fontWeight: 700 }}>
-                      Threat Level
+            return (
+              <div
+                className="glass-card"
+                style={{
+                  padding: 'var(--space-6)',
+                  border: '1.5px solid var(--glass-border)',
+                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(37, 99, 235, 0.05) 100%)',
+                  boxShadow: 'var(--glass-shadow)',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}
+              >
+                {/* Header with Title and Risk Verdict */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)', marginBottom: 'var(--space-5)' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-1)' }}>
+                      <Sparkles size={24} style={{ color: '#10b981' }} />
+                      <h2 style={{ fontSize: 'var(--text-2xl)', fontWeight: 800, margin: 0, color: 'var(--color-dark)' }}>
+                        Executive AI Intelligence Synthesis & Risk Verdict
+                      </h2>
                     </div>
-                    <span
-                      className="glass-pill"
-                      style={{
-                        fontSize: '13px',
-                        fontWeight: 800,
-                        padding: '6px 14px',
-                        display: 'inline-block',
-                        marginTop: '4px',
-                        background: aiReport.fullResponse?.includes('CRITICAL') || scorecard.criticalCount > 0
-                          ? 'rgba(239, 68, 68, 0.2)'
-                          : aiReport.fullResponse?.includes('HIGH') || scorecard.highCount > 0
-                          ? 'rgba(245, 158, 11, 0.2)'
-                          : 'rgba(16, 185, 129, 0.2)',
-                        color: aiReport.fullResponse?.includes('CRITICAL') || scorecard.criticalCount > 0
-                          ? '#dc2626'
-                          : aiReport.fullResponse?.includes('HIGH') || scorecard.highCount > 0
-                          ? '#d97706'
-                          : '#059669',
-                        borderColor: aiReport.fullResponse?.includes('CRITICAL') || scorecard.criticalCount > 0
-                          ? 'rgba(239, 68, 68, 0.4)'
-                          : aiReport.fullResponse?.includes('HIGH') || scorecard.highCount > 0
-                          ? 'rgba(245, 158, 11, 0.4)'
-                          : 'rgba(16, 185, 129, 0.4)',
-                      }}
-                    >
-                      {aiReport.fullResponse?.includes('CRITICAL') || scorecard.criticalCount > 0
-                        ? 'CRITICAL RISK'
-                        : aiReport.fullResponse?.includes('HIGH') || scorecard.highCount > 0
-                        ? 'HIGH RISK'
-                        : aiReport.fullResponse?.includes('MODERATE') || scorecard.mediumCount > 0
-                        ? 'MODERATE RISK'
-                        : 'LOW EXPOSURE'}
-                    </span>
+                    <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap', marginTop: 'var(--space-2)' }}>
+                      <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <ShieldCheck size={12} /> Grounded on {findings.length} Observed OSINT Artifacts
+                      </span>
+                      <span className="glass-pill" style={{ fontSize: '11px' }}>
+                        Engine: {aiReport?.model || 'OpenSpective-Expert-Synthesizer'}
+                      </span>
+                      {(aiReport?.generatedAt || aiReport?.created_at) && (
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                          Synthesized: {new Date(aiReport.generatedAt || aiReport.created_at).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                )}
 
-                <button
-                  type="button"
-                  onClick={handleRunAiAnalysis}
-                  disabled={analyzingAi}
-                  className="btn btn-primary"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <Sparkles size={16} />
-                  {analyzingAi ? 'Synthesizing Intelligence...' : aiReport ? 'Re-Synthesize Intelligence' : 'Generate AI Synthesis'}
-                </button>
-              </div>
-            </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                    {/* Risk Level Badge */}
+                    {aiReport && (
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-text-muted)', fontWeight: 700 }}>
+                          Threat Level
+                        </div>
+                        <span
+                          className="glass-pill"
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            padding: '6px 14px',
+                            display: 'inline-block',
+                            marginTop: '4px',
+                            background: isCritical
+                              ? 'rgba(239, 68, 68, 0.2)'
+                              : isHigh
+                              ? 'rgba(245, 158, 11, 0.2)'
+                              : 'rgba(16, 185, 129, 0.2)',
+                            color: isCritical
+                              ? '#ef4444'
+                              : isHigh
+                              ? '#f59e0b'
+                              : 'var(--color-accent)',
+                            borderColor: isCritical
+                              ? 'rgba(239, 68, 68, 0.4)'
+                              : isHigh
+                              ? 'rgba(245, 158, 11, 0.4)'
+                              : 'rgba(16, 185, 129, 0.4)',
+                          }}
+                        >
+                          {isCritical
+                            ? 'CRITICAL RISK'
+                            : isHigh
+                            ? 'HIGH RISK'
+                            : isModerate
+                            ? 'MODERATE RISK'
+                            : 'LOW EXPOSURE'}
+                        </span>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleRunAiAnalysis}
+                      disabled={analyzingAi}
+                      className="btn btn-primary"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Sparkles size={16} />
+                      {analyzingAi ? 'Synthesizing Intelligence...' : aiReport ? 'Re-Synthesize Intelligence' : 'Generate AI Synthesis'}
+                    </button>
+                  </div>
+                </div>
 
             {/* Content: If Report Exists */}
             {aiReport ? (
@@ -2296,7 +2301,7 @@ export default function InvestigationDetailPage() {
                     background: 'rgba(16, 185, 129, 0.05)',
                   }}
                 >
-                  <div style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 800, color: '#059669', letterSpacing: '0.08em', marginBottom: '4px' }}>
+                  <div style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 800, color: 'var(--color-accent)', letterSpacing: '0.08em', marginBottom: '4px' }}>
                     Executive Briefing
                   </div>
                   <div style={{ fontSize: 'var(--text-base)', lineHeight: 1.6, color: 'var(--color-dark)', fontWeight: 500 }}>
@@ -2307,63 +2312,67 @@ export default function InvestigationDetailPage() {
                 {/* Formatted Markdown Sections */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 'var(--space-4)' }}>
                   {(() => {
-                    const fullText: string = aiReport.fullResponse || '';
-                    const sectionChunks = fullText.split(/(?=###\s+)/g).filter(s => s.trim().length > 0);
+                    const fullText: string = aiFullText;
+                    let sectionChunks = fullText
+                      .split(/(?=(?:^|\n)(?:#{1,3}\s+|\d+\.\s+[*#A-Za-z]))/g)
+                      .map(s => s.trim())
+                      .filter(Boolean);
 
-                    if (sectionChunks.length === 0) {
-                      return (
-                        <div className="glass-panel" style={{ padding: 'var(--space-4)' }}>
-                          <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontSize: '12px', lineHeight: 1.6 }}>{fullText}</pre>
-                        </div>
-                      );
+                    if (sectionChunks.length === 0 && fullText.trim()) {
+                      sectionChunks = [fullText.trim()];
                     }
 
                     return sectionChunks.map((chunk, idx) => {
-                      const lines = chunk.trim().split('\n');
-                      const title = lines[0]?.replace(/^###\s+/, '') || `Analysis Section ${idx + 1}`;
+                      const lines = chunk.split('\n');
+                      const firstLine = lines[0] || '';
+                      const title = firstLine.replace(/^[#*\s\d.]+\s*/, '').replace(/[*_#:]+/g, '').trim() || `Intelligence Section ${idx + 1}`;
                       const bodyLines = lines.slice(1);
 
                       return (
                         <div
                           key={idx}
-                          className="glass-panel"
+                          className="glass-card"
                           style={{
                             padding: 'var(--space-5)',
                             display: 'flex',
                             flexDirection: 'column',
                             gap: 'var(--space-3)',
-                            background: 'var(--color-surface)',
+                            background: 'var(--glass-bg-card)',
                             border: '1.5px solid var(--glass-border)'
                           }}
                         >
-                          <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 800, color: 'var(--color-dark)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <CheckCircle2 size={16} style={{ color: '#10b981' }} /> {title}
+                          <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 800, color: 'var(--color-dark)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <CheckCircle2 size={16} style={{ color: 'var(--color-accent)' }} /> {title}
                           </h3>
-                          <div style={{ fontSize: '12.5px', lineHeight: 1.6, color: 'var(--color-text-secondary)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            {bodyLines.map((line, lIdx) => {
-                              const cleanLine = line.trim();
-                              if (!cleanLine) return null;
-                              if (cleanLine.startsWith('- ') || cleanLine.startsWith('* ')) {
-                                const bulletContent = cleanLine.replace(/^[-*]\s+/, '');
+                          <div style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--color-text-secondary)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {bodyLines.length > 0 ? (
+                              bodyLines.map((line, lIdx) => {
+                                const cleanLine = line.trim();
+                                if (!cleanLine) return null;
+                                if (cleanLine.startsWith('- ') || cleanLine.startsWith('* ')) {
+                                  const bulletContent = cleanLine.replace(/^[-*]\s+/, '');
+                                  return (
+                                    <div key={lIdx} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                      <span style={{ color: 'var(--color-accent)', fontWeight: 800 }}>•</span>
+                                      <span dangerouslySetInnerHTML={{
+                                        __html: bulletContent
+                                          .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--color-text-primary)">$1</strong>')
+                                          .replace(/`(.*?)`/g, '<code style="background:var(--color-bg-secondary);color:var(--color-accent-dark);padding:1px 5px;border-radius:4px;font-size:11px">$1</code>')
+                                      }} />
+                                    </div>
+                                  );
+                                }
                                 return (
-                                  <div key={lIdx} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                    <span style={{ color: '#10b981', fontWeight: 800 }}>•</span>
-                                    <span dangerouslySetInnerHTML={{
-                                      __html: bulletContent
-                                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                                        .replace(/`(.*?)`/g, '<code style="background:var(--color-bg);padding:1px 4px;border-radius:4px;font-size:11px">$1</code>')
-                                    }} />
-                                  </div>
+                                  <p key={lIdx} style={{ margin: 0 }} dangerouslySetInnerHTML={{
+                                    __html: cleanLine
+                                      .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--color-text-primary)">$1</strong>')
+                                      .replace(/`(.*?)`/g, '<code style="background:var(--color-bg-secondary);color:var(--color-accent-dark);padding:1px 5px;border-radius:4px;font-size:11px">$1</code>')
+                                  }} />
                                 );
-                              }
-                              return (
-                                <p key={lIdx} style={{ margin: 0 }} dangerouslySetInnerHTML={{
-                                  __html: cleanLine
-                                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                                    .replace(/`(.*?)`/g, '<code style="background:var(--color-bg);padding:1px 4px;border-radius:4px;font-size:11px">$1</code>')
-                                }} />
-                              );
-                            })}
+                              })
+                            ) : (
+                              <p style={{ margin: 0 }}>{firstLine}</p>
+                            )}
                           </div>
                         </div>
                       );
@@ -2375,7 +2384,7 @@ export default function InvestigationDetailPage() {
                 <div style={{ marginTop: 'var(--space-2)' }}>
                   <button
                     type="button"
-                    onClick={() => handleCopyRaw(aiReport.fullResponse || '', 'ai-full-response')}
+                    onClick={() => handleCopyRaw(aiFullText, 'ai-full-response')}
                     className="btn btn-secondary btn-xs"
                     style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                   >
@@ -2406,7 +2415,9 @@ export default function InvestigationDetailPage() {
                 </button>
               </div>
             )}
-          </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 

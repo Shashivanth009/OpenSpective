@@ -348,10 +348,12 @@ export default function InvestigatePage() {
                   {cat}
                   <span style={{
                     fontSize: '10px',
-                    padding: '1px 6px',
+                    padding: '2px 7px',
                     borderRadius: '10px',
-                    background: isActive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(0,0,0,0.06)',
+                    background: isActive ? 'rgba(16, 185, 129, 0.35)' : 'var(--glass-bg-card)',
+                    color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                     fontWeight: 700,
+                    border: '1px solid var(--glass-border-subtle)',
                   }}>
                     {count}
                   </span>

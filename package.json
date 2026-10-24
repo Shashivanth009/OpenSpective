@@ -9,7 +9,8 @@
     "packages/shared"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace=apps/web",
+    "dev": "concurrently -k -n \"worker,web\" -c \"cyan,magenta\" \"npm run dev:worker\" \"npm run dev:web\"",
+    "dev:web": "npm run dev --workspace=apps/web",
     "dev:worker": "npm run dev --workspace=apps/worker",
     "build": "npm run build --workspace=packages/shared && npm run build --workspace=apps/web",
     "build:worker": "npm run build --workspace=apps/worker",
@@ -22,6 +23,7 @@
     "deploy:web": "npm run deploy --workspace=apps/web"
   },
   "devDependencies": {
+    "concurrently": "^10.0.6",
     "typescript": "^5.4.5"
   },
   "engines": {

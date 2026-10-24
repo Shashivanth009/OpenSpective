@@ -72,6 +72,8 @@ function GraphViewInner() {
   const [hoveredNode, setHoveredNode] = useState<{ raw: any; x: number; y: number } | null>(null);
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchFocused, setSearchFocused] = useState<boolean>(false);
+  const [drawerMinimized, setDrawerMinimized] = useState<boolean>(false);
   const [layout, setLayout] = useState<LayoutType>('concentric');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -141,6 +143,19 @@ function GraphViewInner() {
       return matchesType && matchesSearch;
     });
   }, [rawGraph, filterType, searchQuery]);
+
+  // Live matching suggestions for search dropdown
+  const searchSuggestions = useMemo(() => {
+    if (!searchQuery.trim() || !rawGraph?.nodes) return [];
+    const q = searchQuery.toLowerCase();
+    return rawGraph.nodes
+      .filter((n: any) =>
+        (n.label || '').toLowerCase().includes(q) ||
+        (n.value || '').toLowerCase().includes(q) ||
+        (n.type || '').toLowerCase().includes(q)
+      )
+      .slice(0, 8);
+  }, [searchQuery, rawGraph]);
 
   // Layout algorithm calculation
   const layoutedPositions = useMemo(() => {
@@ -396,10 +411,18 @@ function GraphViewInner() {
             transition: 'all 0.25s ease',
           },
           labelStyle: {
-            fill: isConnectedToHovered ? '#1d4ed8' : isConnectedToSelected ? '#059669' : '#64748b',
-            fontSize: 10,
-            fontWeight: isHighlighted ? 700 : 500,
+            fill: isConnectedToHovered ? '#1d4ed8' : isConnectedToSelected ? '#059669' : '#475569',
+            fontSize: 9.5,
+            fontWeight: isHighlighted ? 700 : 600,
             opacity: isDimmed ? 0.12 : 1,
+          },
+          labelBgPadding: [4, 6] as [number, number],
+          labelBgBorderRadius: 4,
+          labelBgStyle: {
+            fill: '#ffffff',
+            fillOpacity: 0.95,
+            stroke: isConnectedToHovered ? '#3b82f6' : isConnectedToSelected ? '#10b981' : '#cbd5e1',
+            strokeWidth: 1,
           },
           data: e,
         };
@@ -422,6 +445,23 @@ function GraphViewInner() {
 
   const handleRecenter = useCallback(() => {
     reactFlowInstance.fitView({ padding: 0.2, duration: 450 });
+  }, [reactFlowInstance]);
+
+  const handleSelectAndCenterNode = useCallback((targetNode: any) => {
+    setSelectedNode(targetNode);
+    setSearchQuery('');
+    setSearchFocused(false);
+    const pos = layoutedPositions[targetNode.id];
+    if (pos) {
+      reactFlowInstance.setCenter(pos.x + 90, pos.y + 30, { zoom: 1.35, duration: 550 });
+    }
+  }, [layoutedPositions, reactFlowInstance]);
+
+  const handleLayoutChange = useCallback((newLayout: LayoutType) => {
+    setLayout(newLayout);
+    setTimeout(() => {
+      reactFlowInstance.fitView({ padding: 0.22, duration: 400 });
+    }, 60);
   }, [reactFlowInstance]);
 
   const handleExportGraphJson = () => {
@@ -488,13 +528,15 @@ function GraphViewInner() {
           </div>
         </div>
 
-        {/* Search Bar */}
-        <div style={{ position: 'relative', width: '240px' }}>
+        {/* Search Bar with Autocomplete Dropdown */}
+        <div style={{ position: 'relative', width: '250px' }}>
           <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
           <input
             type="text"
             className="glass-input"
             value={searchQuery}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setTimeout(() => setSearchFocused(false), 250)}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search nodes (IP, handle)..."
             style={{ width: '100%', padding: '6px 28px 6px 30px', fontSize: 'var(--text-xs)' }}
@@ -507,6 +549,70 @@ function GraphViewInner() {
               <X size={13} />
             </button>
           )}
+
+          {/* Autocomplete Dropdown */}
+          {searchFocused && searchSuggestions.length > 0 && (
+            <div
+              className="glass-card"
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 6px)',
+                left: 0,
+                right: 0,
+                maxHeight: '260px',
+                overflowY: 'auto',
+                padding: '4px',
+                zIndex: 50,
+                boxShadow: 'var(--shadow-xl)',
+                borderRadius: 'var(--radius)',
+                background: 'var(--color-bg)',
+              }}
+            >
+              <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', padding: '4px 8px' }}>
+                Quick Jump To Node ({searchSuggestions.length})
+              </div>
+              {searchSuggestions.map((item: any) => {
+                const itemColor = NODE_TYPE_COLORS[item.type?.toLowerCase()] || '#10b981';
+                return (
+                  <div
+                    key={item.id}
+                    onMouseDown={() => handleSelectAndCenterNode(item)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '6px 8px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      gap: '8px',
+                      transition: 'background 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--glass-bg-subtle)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                      <span style={{ color: itemColor }}>{getNodeIcon(item.type)}</span>
+                      <span style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--color-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.label || item.value}
+                      </span>
+                    </div>
+                    <span style={{
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      color: itemColor,
+                      background: `${itemColor}15`,
+                      padding: '1px 5px',
+                      borderRadius: '3px',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {item.type}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Layout Mode Selector */}
@@ -514,14 +620,14 @@ function GraphViewInner() {
           <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginRight: '4px' }}>
             <Layers size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> Layout:
           </span>
-          {(['radial', 'concentric', 'hierarchy', 'grid'] as LayoutType[]).map((mode) => (
+          {(['concentric', 'radial', 'hierarchy', 'grid'] as LayoutType[]).map((mode) => (
             <button
               key={mode}
-              onClick={() => setLayout(mode)}
+              onClick={() => handleLayoutChange(mode)}
               className={`btn btn-xs ${layout === mode ? 'btn-primary' : 'btn-ghost'}`}
               style={{ textTransform: 'capitalize', fontSize: '11px', fontWeight: 600 }}
             >
-              {mode}
+              {mode === 'concentric' ? 'Clustered' : mode}
             </button>
           ))}
         </div>
@@ -764,21 +870,31 @@ function GraphViewInner() {
               boxShadow: 'var(--shadow-xl)',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
-              <span
-                className="badge"
-                style={{
-                  textTransform: 'capitalize',
-                  backgroundColor: `${NODE_TYPE_COLORS[selectedNode.type?.toLowerCase()] || '#6b7280'}20`,
-                  color: NODE_TYPE_COLORS[selectedNode.type?.toLowerCase()] || '#374151',
-                  border: `1.5px solid ${NODE_TYPE_COLORS[selectedNode.type?.toLowerCase()] || '#d1d5db'}`,
-                  fontWeight: 700,
-                  fontSize: '11px',
-                  padding: '3px 10px',
-                }}
-              >
-                {selectedNode.type}
-              </span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: drawerMinimized ? 0 : 'var(--space-3)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span
+                  className="badge"
+                  style={{
+                    textTransform: 'capitalize',
+                    backgroundColor: `${NODE_TYPE_COLORS[selectedNode.type?.toLowerCase()] || '#6b7280'}20`,
+                    color: NODE_TYPE_COLORS[selectedNode.type?.toLowerCase()] || '#374151',
+                    border: `1.5px solid ${NODE_TYPE_COLORS[selectedNode.type?.toLowerCase()] || '#d1d5db'}`,
+                    fontWeight: 700,
+                    fontSize: '11px',
+                    padding: '3px 10px',
+                  }}
+                >
+                  {selectedNode.type}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDrawerMinimized(!drawerMinimized)}
+                  className="btn btn-ghost btn-xs"
+                  style={{ fontSize: '10px', padding: '1px 6px' }}
+                >
+                  {drawerMinimized ? 'Expand' : 'Minimize'}
+                </button>
+              </div>
               <button
                 onClick={() => setSelectedNode(null)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: 'var(--color-text-muted)' }}
@@ -787,73 +903,75 @@ function GraphViewInner() {
               </button>
             </div>
 
-            <div style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: 'var(--color-dark)', wordBreak: 'break-all', marginBottom: 'var(--space-2)' }}>
-              {selectedNode.value || selectedNode.label}
-            </div>
-
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
-              Entity Identifier: <code>{selectedNode.id}</code>
-            </div>
-
-            {/* Connected Neighbors Count & Quick Actions */}
-            <div style={{
-              background: 'var(--glass-bg-subtle)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius)',
-              padding: 'var(--space-2) var(--space-3)',
-              marginBottom: 'var(--space-4)',
-              fontSize: '12px',
-              color: 'var(--color-text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}>
-              <span>Direct OSINT Connections:</span>
-              <strong style={{ color: 'var(--color-accent)' }}>{connectedNeighborIds.size - 1} adjacent</strong>
-            </div>
-
-            {/* Clickable Adjacent Neighbor Entities Pills */}
-            {connectedNeighborIds.size > 1 && (
-              <div style={{ marginBottom: 'var(--space-4)' }}>
-                <div style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  Connected Entities ({connectedNeighborIds.size - 1})
+            {!drawerMinimized && (
+              <>
+                <div style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: 'var(--color-dark)', wordBreak: 'break-all', marginBottom: 'var(--space-2)' }}>
+                  {selectedNode.value || selectedNode.label}
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxHeight: '110px', overflowY: 'auto' }}>
-                  {filteredRawNodes
-                    .filter((n: any) => n.id !== selectedNode.id && connectedNeighborIds.has(n.id))
-                    .map((n: any) => {
-                      const nColor = NODE_TYPE_COLORS[n.type?.toLowerCase()] || '#10b981';
-                      return (
-                        <button
-                          key={n.id}
-                          onClick={() => setSelectedNode(n)}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            background: `${nColor}15`,
-                            color: nColor,
-                            border: `1px solid ${nColor}40`,
-                            borderRadius: '4px',
-                            padding: '2px 6px',
-                            fontSize: '10.5px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            maxWidth: '160px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                          title={`Focus ${n.label || n.value}`}
-                        >
-                          {getNodeIcon(n.type)}
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.label || n.value}</span>
-                        </button>
-                      );
-                    })}
+
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
+                  Entity Identifier: <code>{selectedNode.id}</code>
                 </div>
-              </div>
-            )}
+
+                {/* Connected Neighbors Count & Quick Actions */}
+                <div style={{
+                  background: 'var(--glass-bg-subtle)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius)',
+                  padding: 'var(--space-2) var(--space-3)',
+                  marginBottom: 'var(--space-4)',
+                  fontSize: '12px',
+                  color: 'var(--color-text-secondary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}>
+                  <span>Direct OSINT Connections:</span>
+                  <strong style={{ color: 'var(--color-accent)' }}>{connectedNeighborIds.size - 1} adjacent</strong>
+                </div>
+
+                {/* Clickable Adjacent Neighbor Entities Pills */}
+                {connectedNeighborIds.size > 1 && (
+                  <div style={{ marginBottom: 'var(--space-4)' }}>
+                    <div style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>
+                      Connected Entities ({connectedNeighborIds.size - 1})
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxHeight: '110px', overflowY: 'auto' }}>
+                      {filteredRawNodes
+                        .filter((n: any) => n.id !== selectedNode.id && connectedNeighborIds.has(n.id))
+                        .map((n: any) => {
+                          const nColor = NODE_TYPE_COLORS[n.type?.toLowerCase()] || '#10b981';
+                          return (
+                            <button
+                              key={n.id}
+                              onClick={() => handleSelectAndCenterNode(n)}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                background: `${nColor}15`,
+                                color: nColor,
+                                border: `1px solid ${nColor}40`,
+                                borderRadius: '4px',
+                                padding: '2px 6px',
+                                fontSize: '10.5px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                maxWidth: '160px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={`Focus ${n.label || n.value}`}
+                            >
+                              {getNodeIcon(n.type)}
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.label || n.value}</span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
 
             {/* Location Specific Map Actions */}
             {selectedNode.type?.toLowerCase() === 'location' && (
@@ -917,6 +1035,8 @@ function GraphViewInner() {
                 Directly associated in the investigation corpus. Relationships are strictly grounded in public records and verified across open OSINT platforms.
               </p>
             </div>
+            </>
+          )}
           </div>
         )}
 

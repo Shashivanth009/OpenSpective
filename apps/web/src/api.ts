@@ -16,6 +16,27 @@ export function getToken(): string | null {
   return _token;
 }
 
+export interface CustomApiKeys {
+  virustotal?: string;
+  ipinfo?: string;
+  github?: string;
+  shodan?: string;
+  haveibeenpwned?: string;
+}
+
+export function getCustomApiKeys(): CustomApiKeys {
+  try {
+    const raw = localStorage.getItem('os_api_keys');
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveCustomApiKeys(keys: CustomApiKeys): void {
+  localStorage.setItem('os_api_keys', JSON.stringify(keys));
+}
+
 interface FetchOptions extends RequestInit {
   params?: Record<string, string | number | undefined>;
 }
@@ -44,6 +65,14 @@ async function apiFetch<T>(
   if (_token) {
     headers['Authorization'] = `Bearer ${_token}`;
   }
+
+  // Attach client-saved custom external API keys
+  const customKeys = getCustomApiKeys();
+  if (customKeys.virustotal) headers['X-Virustotal-Key'] = customKeys.virustotal;
+  if (customKeys.ipinfo) headers['X-Ipinfo-Token'] = customKeys.ipinfo;
+  if (customKeys.github) headers['X-Github-Token'] = customKeys.github;
+  if (customKeys.shodan) headers['X-Shodan-Key'] = customKeys.shodan;
+  if (customKeys.haveibeenpwned) headers['X-Hibp-Key'] = customKeys.haveibeenpwned;
 
   const response = await fetch(url, {
     ...init,

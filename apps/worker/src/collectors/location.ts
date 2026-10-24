@@ -196,6 +196,7 @@ export async function collectLocationIntelligence(
   // 1. Correlate geocoded places with timestamped activity
   for (let idx = 0; idx < resolvedLocations.length; idx++) {
     const loc = resolvedLocations[idx];
+    if (!loc) continue;
     const sampleDate = commitDates[idx] || commitDates[0] || undefined;
     const dateFormatted = sampleDate ? new Date(sampleDate).toISOString().split('T')[0] : undefined;
 

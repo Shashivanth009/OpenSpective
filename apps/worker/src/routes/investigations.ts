@@ -120,6 +120,22 @@ investigationsRouter.post('/', investigationRateLimit, async (c) => {
       .run();
   }
 
+  // Extract any custom API credentials passed by client from Settings
+  const clientVtKey = c.req.header('x-virustotal-key');
+  const clientIpinfoToken = c.req.header('x-ipinfo-token');
+  const clientGithubToken = c.req.header('x-github-token');
+  const clientShodanKey = c.req.header('x-shodan-key');
+  const clientHibpKey = c.req.header('x-hibp-key');
+
+  const effectiveEnv: Env = {
+    ...c.env,
+    ...(clientVtKey ? { VIRUSTOTAL_API_KEY: clientVtKey } : {}),
+    ...(clientIpinfoToken ? { IPINFO_TOKEN: clientIpinfoToken } : {}),
+    ...(clientGithubToken ? { GITHUB_TOKEN: clientGithubToken } : {}),
+    ...(clientShodanKey ? { SHODAN_API_KEY: clientShodanKey } : {}),
+    ...(clientHibpKey ? { HAVE_I_BEEN_PWNED_API_KEY: clientHibpKey } : {}),
+  };
+
   // Run investigation asynchronously (non-blocking)
   const ctx = {
     investigationId,
@@ -127,7 +143,7 @@ investigationsRouter.post('/', investigationRateLimit, async (c) => {
     normalizedTarget: normalized,
     targetType: resolvedType,
     selectedModules,
-    env: c.env,
+    env: effectiveEnv,
   };
 
   // Use waitUntil to run in background without holding the response
@@ -383,22 +399,6 @@ investigationsRouter.get('/:id/graph', apiRateLimit, async (c) => {
 
   return c.json(graph);
 });
-
-// ---- POST /investigations/:id/analyze (Free for all) ----
-investigationsRouter.post('/:id/analyze', async (c) => {
-  const { id } = c.req.param();
-  const user = c.get('user');
-
-  const investigation = await c.env.DB
-    .prepare(`SELECT * FROM investigations WHERE id = ?`)
-    .bind(id)
-    .first();
-
-  if (!investigation) return c.json({ error: 'Not found.', code: 'NOT_FOUND' }, 404);
-
-  if (!['completed', 'partial'].includes(investigation['status'] as string)) {
-    return c.json({ error: 'Investigation must be completed before analysis.', code: 'INVALID_STATE' }, 409);
-  }
 
 // Helper for deterministic expert OSINT synthesis when AI API is unavailable or offline
 function generateExpertOsintSynthesis(target: string, targetType: string, findingsList: any[]) {

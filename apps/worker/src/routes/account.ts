@@ -17,22 +17,32 @@ export const accountRouter = new Hono<{ Bindings: Env; Variables: Variables }>()
 accountRouter.use('*', authMiddleware);
 
 // GET /account/usage
-accountRouter.get('/usage', requireAuth, async (c) => {
-  const user = c.get('user')!;
+accountRouter.get('/usage', async (c) => {
+  const user = c.get('user');
   const period = new Date().toISOString().slice(0, 7);
 
-  const usage = await c.env.DB
-    .prepare(`SELECT * FROM usage_records WHERE user_id = ? AND period = ?`)
-    .bind(user.id, period)
-    .first();
-
-  const used = {
-    investigations: (usage?.['investigation_count'] as number) ?? 0,
-    collectorCalls: (usage?.['collector_call_count'] as number) ?? 0,
-    aiInferences: (usage?.['ai_inference_count'] as number) ?? 0,
-    reports: (usage?.['report_count'] as number) ?? 0,
-    storageBytes: (usage?.['storage_bytes'] as number) ?? 0,
+  let used = {
+    investigations: 0,
+    collectorCalls: 0,
+    aiInferences: 0,
+    reports: 0,
+    storageBytes: 0,
   };
+
+  if (user) {
+    const usage = await c.env.DB
+      .prepare(`SELECT * FROM usage_records WHERE user_id = ? AND period = ?`)
+      .bind(user.id, period)
+      .first();
+
+    used = {
+      investigations: (usage?.['investigation_count'] as number) ?? 0,
+      collectorCalls: (usage?.['collector_call_count'] as number) ?? 0,
+      aiInferences: (usage?.['ai_inference_count'] as number) ?? 0,
+      reports: (usage?.['report_count'] as number) ?? 0,
+      storageBytes: (usage?.['storage_bytes'] as number) ?? 0,
+    };
+  }
 
   const limits = { ...FREE_TIER_LIMITS };
   const accountUsage: AccountUsage = {

@@ -268,10 +268,10 @@ fpr:11223344556677889900AABBCCDDEEFF00112233`;
 
       const keys = await queryPgpKeyserver('satoshin@gmx.com');
       expect(keys.length).toBe(1);
-      expect(keys[0].keyId).toBe('A1B2C3D4E5F60718');
-      expect(keys[0].identities[0]).toContain('Satoshi Nakamoto');
-      expect(keys[0].algorithm).toBe('RSA');
-      expect(keys[0].bitLength).toBe(4096);
+      expect(keys[0]?.keyId).toBe('A1B2C3D4E5F60718');
+      expect(keys[0]?.identities[0]).toContain('Satoshi Nakamoto');
+      expect(keys[0]?.algorithm).toBe('RSA');
+      expect(keys[0]?.bitLength).toBe(4096);
     });
   });
 

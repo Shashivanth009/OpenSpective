@@ -396,5 +396,5 @@ export const SUPPORTED_TARGET_TYPES: TargetType[] = [
   'phone',
 ];
 
-export * from './osint_tools.ts';
+export * from './osint_tools';
 

@@ -11,7 +11,7 @@ export default function InvestigatePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialQuery = searchParams.get('q') || searchParams.get('target') || '';
-  const initialType = searchParams.get('type') || 'auto';
+  const initialType = searchParams.get('type') || localStorage.getItem('os_pref_target_type') || 'auto';
   const initialModule = searchParams.get('module');
 
   const [target, setTarget] = useState(initialQuery);
@@ -29,7 +29,10 @@ export default function InvestigatePage() {
       setSelectedModules((prev) => [...prev, initialModule]);
     }
   }, [initialModule]);
-  const [enableAi, setEnableAi] = useState(true);
+  const [enableAi, setEnableAi] = useState<boolean>(() => {
+    const pref = localStorage.getItem('os_pref_ai_auto');
+    return pref !== null ? pref === 'true' : true;
+  });
   const [loading, setLoading] = useState(false);
   const [launchProgress, setLaunchProgress] = useState(0);
   const [launchStepText, setLaunchStepText] = useState('');

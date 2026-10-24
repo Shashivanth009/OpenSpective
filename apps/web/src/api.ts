@@ -173,6 +173,7 @@ export interface CollectorExecution {
   completed_at: string | null;
   findings_count: number;
   error_message: string | null;
+  duration_ms?: number;
 }
 
 export interface Finding {

@@ -332,31 +332,44 @@ export default function OsintFrameworkPage() {
         {/* Category Pills (All 18 Categories) */}
         <div style={{
           display: 'flex',
-          gap: 'var(--space-2)',
+          gap: '8px',
           flexWrap: 'wrap',
-          background: 'var(--color-surface)',
-          padding: 'var(--space-3)',
+          background: 'var(--glass-bg-subtle)',
+          padding: '12px 14px',
           borderRadius: 'var(--radius)',
-          border: '1px solid var(--color-border)'
+          border: '1.5px solid var(--glass-border)',
+          backdropFilter: 'blur(16px)',
         }}>
           {OSINT_CATEGORIES.map(cat => {
             const count = cat === 'All Tools'
               ? OSINT_TOOLS_REGISTRY.length
               : OSINT_TOOLS_REGISTRY.filter(t => t.category === cat).length;
+            const isActive = selectedCategory === cat;
 
             return (
               <button
                 key={cat}
+                type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`btn btn-xs ${selectedCategory === cat ? 'btn-primary' : 'btn-ghost'}`}
+                className={`glass-pill ${isActive ? 'glass-pill-active' : ''}`}
                 style={{
                   fontSize: '11px',
-                  padding: '3px 10px',
-                  borderRadius: 'var(--radius-sm)',
-                  fontWeight: selectedCategory === cat ? 700 : 500
+                  fontWeight: isActive ? 800 : 600,
+                  cursor: 'pointer',
+                  gap: '6px',
                 }}
               >
-                {cat} ({count})
+                {cat === 'All Tools' && <Compass size={13} style={{ color: isActive ? 'var(--color-accent)' : 'inherit' }} />}
+                {cat}
+                <span style={{
+                  fontSize: '10px',
+                  padding: '1px 6px',
+                  borderRadius: '10px',
+                  background: isActive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(0,0,0,0.06)',
+                  fontWeight: 700,
+                }}>
+                  {count}
+                </span>
               </button>
             );
           })}

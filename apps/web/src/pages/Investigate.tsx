@@ -260,15 +260,16 @@ export default function InvestigatePage() {
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-              <span className="badge badge-accent" style={{ fontWeight: 700, padding: '4px 10px', fontSize: '12px' }}>
+              <span className="badge badge-accent" style={{ fontWeight: 800, padding: '6px 14px', fontSize: '13px', border: '1.5px solid rgba(16, 185, 129, 0.4)' }}>
                 {selectedModules.length} / {OSINT_TOOLS_REGISTRY.length} Selected
               </span>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className="btn btn-primary btn-sm"
                 onClick={selectAllTools}
+                style={{ fontWeight: 700, padding: '6px 14px', gap: '6px' }}
               >
-                Select All ({OSINT_TOOLS_REGISTRY.length})
+                <CheckCircle2 size={15} /> Select All 173 Engines
               </button>
               {toolSearch || selectedCategory !== 'All Tools' ? (
                 <button
@@ -283,53 +284,80 @@ export default function InvestigatePage() {
                 type="button"
                 className="btn btn-ghost btn-sm"
                 onClick={clearAllTools}
+                style={{ color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.25)' }}
               >
                 Clear
               </button>
             </div>
           </div>
 
-          {/* Search & Category Filter Controls */}
-          <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexWrap: 'wrap' }}>
-            <div style={{ flex: '1 1 260px', position: 'relative' }}>
-              <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-              <input
-                type="text"
-                className="input"
-                style={{ paddingLeft: '36px', height: '38px', fontSize: 'var(--text-xs)' }}
-                placeholder="Filter 173 tools by name, category, CLI command, or tag..."
-                value={toolSearch}
-                onChange={(e) => setToolSearch(e.target.value)}
-              />
-              {toolSearch && (
-                <button
-                  type="button"
-                  onClick={() => setToolSearch('')}
-                  style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '12px' }}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-            <div style={{ flex: '1 1 220px' }}>
-              <select
-                className="input"
-                style={{ height: '38px', fontSize: 'var(--text-xs)' }}
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
+          {/* Search Input Bar */}
+          <div style={{ marginBottom: 'var(--space-3)', position: 'relative' }}>
+            <Search size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+            <input
+              type="text"
+              className="input"
+              style={{ paddingLeft: '40px', height: '42px', fontSize: 'var(--text-sm)' }}
+              placeholder="Filter 173 tools by name, category, CLI command, or tag..."
+              value={toolSearch}
+              onChange={(e) => setToolSearch(e.target.value)}
+            />
+            {toolSearch && (
+              <button
+                type="button"
+                onClick={() => setToolSearch('')}
+                style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '14px' }}
               >
-                {OSINT_CATEGORIES.map((cat) => {
-                  const count = cat === 'All Tools' 
-                    ? OSINT_TOOLS_REGISTRY.length 
-                    : OSINT_TOOLS_REGISTRY.filter(t => t.category === cat).length;
-                  return (
-                    <option key={cat} value={cat}>
-                      {cat} ({count})
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Prominent High-Glass Category Pills with "All Tools" front and center */}
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            flexWrap: 'wrap',
+            padding: '10px 12px',
+            background: 'var(--glass-bg-subtle)',
+            borderRadius: 'var(--radius)',
+            border: '1.5px solid var(--glass-border)',
+            marginBottom: 'var(--space-4)',
+            backdropFilter: 'blur(16px)',
+          }}>
+            {OSINT_CATEGORIES.map((cat) => {
+              const count = cat === 'All Tools'
+                ? OSINT_TOOLS_REGISTRY.length
+                : OSINT_TOOLS_REGISTRY.filter(t => t.category === cat).length;
+              const isActive = selectedCategory === cat;
+
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`glass-pill ${isActive ? 'glass-pill-active' : ''}`}
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: isActive ? 800 : 600,
+                    cursor: 'pointer',
+                    gap: '6px',
+                  }}
+                >
+                  {cat === 'All Tools' && <Shield size={13} style={{ color: isActive ? 'var(--color-accent)' : 'inherit' }} />}
+                  {cat}
+                  <span style={{
+                    fontSize: '10px',
+                    padding: '1px 6px',
+                    borderRadius: '10px',
+                    background: isActive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(0,0,0,0.06)',
+                    fontWeight: 700,
+                  }}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Tools Grid with Smooth Max Height */}

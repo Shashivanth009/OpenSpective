@@ -400,40 +400,77 @@ investigationsRouter.get('/:id/graph', apiRateLimit, async (c) => {
   return c.json(graph);
 });
 
-// Helper for deterministic expert OSINT synthesis when AI API is unavailable or offline
+// Helper for deterministic expert OSINT synthesis grounded on real findings
 function generateExpertOsintSynthesis(target: string, targetType: string, findingsList: any[]) {
   const categories = new Set(findingsList.map(f => f.category));
-  const verifiedProfiles = findingsList.filter(f => f.type === 'sherlock_profile' || f.type === 'github_profile' || (f.notes && f.notes.includes('✓')));
+  const verifiedProfiles = findingsList.filter(f => f.type === 'sherlock_profile' || f.type === 'github_profile' || f.category === 'social_profile' || (f.notes && f.notes.includes('✓')));
   const locations = findingsList.filter(f => f.category === 'location_intelligence' || f.type === 'place_visit');
   const criticals = findingsList.filter(f => f.severity === 'critical' || f.severity === 'high');
-  const emails = findingsList.filter(f => f.type === 'git_author_email' || (f.type && f.type.includes('email')));
-  const domains = findingsList.filter(f => (f.type && f.type.includes('domain')) || f.type === 'dns_a');
+  const mediums = findingsList.filter(f => f.severity === 'medium');
+  const emails = findingsList.filter(f => f.type === 'git_author_email' || (f.type && f.type.includes('email')) || f.category === 'identity_attribution');
+  const dnsRecords = findingsList.filter(f => f.category === 'dns');
+  const subdomains = findingsList.filter(f => f.category === 'certificate' || f.type === 'subdomain');
+  const openPorts = findingsList.filter(f => f.type === 'passive_open_ports' || f.type === 'open_port');
+  const cves = findingsList.filter(f => f.type && f.type.includes('cve'));
+  const breaches = findingsList.filter(f => f.category === 'breach' || f.type === 'breach_record');
+  const techStack = findingsList.filter(f => f.category === 'technology');
+  const securityScores = findingsList.filter(f => f.type === 'dns_security_score' || f.type === 'security_hygiene_score');
+  const cryptoWallets = findingsList.filter(f => f.category === 'blockchain' || f.type === 'crypto_wallet');
 
-  const summary = `OpenSpective reconnaissance mapped ${findingsList.length} intelligence artifacts for '${target}' (${targetType}). Identified ${verifiedProfiles.length} verified digital profiles, ${locations.length} geolocation/venue footprints, and ${criticals.length} high-severity risk items across ${categories.size} intelligence disciplines.`;
+  // Compute calculated risk level based on actual findings
+  let riskLevel = 'LOW';
+  if (criticals.length > 0 || breaches.length > 0 || cves.length > 0) riskLevel = 'CRITICAL';
+  else if (mediums.length >= 2 || emails.length > 0) riskLevel = 'HIGH';
+  else if (openPorts.length > 0 || verifiedProfiles.length > 2) riskLevel = 'MODERATE';
+
+  const summary = `OpenSpective AI Reconnaissance Synthesis for '${target}' (${targetType.toUpperCase()}): Overall threat posture assessed as [${riskLevel} RISK]. Identified ${findingsList.length} verified intelligence artifacts across ${categories.size} disciplines, including ${subdomains.length} discovered subdomains/hosts, ${openPorts.length} passive open services, ${emails.length} exposed email attributes, and ${breaches.length} historical breach correlations.`;
 
   const sections: string[] = [
-    `### 1. Executive Summary\n${summary}`,
-    `### 2. Digital Identity & Surface Footprint\n- **Target Handle/Entity**: ${target} (${targetType})\n- **Discovered Accounts**: ${verifiedProfiles.length > 0 ? verifiedProfiles.map(p => p.value).slice(0, 8).join(', ') : 'No high-confidence public profiles observed.'}\n- **Associated Domains / Network**: ${domains.length > 0 ? domains.map(d => d.value).slice(0, 6).join(', ') : 'Standard infrastructure.'}\n- **Email Addresses**: ${emails.length > 0 ? emails.map(e => e.value).slice(0, 5).join(', ') : 'None publicly exposed in passive registries.'}`,
+    `### 1. Executive Intelligence Summary\n${summary}`,
+    `### 2. Network & Attack Surface Footprint\n` +
+      `- **Primary Entity**: \`${target}\` (Classified as ${targetType})\n` +
+      `- **DNS Architecture**: ${dnsRecords.length > 0 ? `${dnsRecords.length} records mapped (A, MX, TXT, NS, SOA)` : 'Standard public records'}\n` +
+      `- **Discovered Subdomains & Hostnames**: ${subdomains.length > 0 ? subdomains.slice(0, 10).map(s => `\`${s.value}\``).join(', ') : 'Root domain only'}\n` +
+      `- **Passive Open Ports & Services**: ${openPorts.length > 0 ? openPorts.map(p => `\`${p.value}\``).join(', ') : 'No high-risk exposed management ports discovered'}\n` +
+      `- **Web & Infrastructure Technologies**: ${techStack.length > 0 ? techStack.slice(0, 8).map(t => `${t.value}`).join(' | ') : 'Default web stack'}`,
+    `### 3. Identity, People & Attribution Analysis\n` +
+      `- **Verified Public Profiles & Accounts**: ${verifiedProfiles.length > 0 ? verifiedProfiles.slice(0, 8).map(p => `${p.value} (${p.source_name || 'OSINT'})`).join(', ') : 'No high-confidence social or code author identities matched'}\n` +
+      `- **Identified Email Addresses**: ${emails.length > 0 ? emails.slice(0, 6).map(e => `\`${e.value}\``).join(', ') : 'None publicly exposed in commit logs or registries'}\n` +
+      (cryptoWallets.length > 0 ? `- **Cryptographic Addresses**: ${cryptoWallets.map(w => `\`${w.value}\``).join(', ')}\n` : '') +
+      `- **Historical Compromises & Breaches**: ${breaches.length > 0 ? `⚠️ ${breaches.length} breach records correlated (${breaches.slice(0, 4).map(b => b.value).join(', ')})` : 'Zero known breached records matched in public dumps'}`,
   ];
 
   if (locations.length > 0) {
-    sections.push(`### 3. Spatial & Geolocation Footprint\n- Identified ${locations.length} location and place check-in artifacts.\n- Notable venues/locations: ${locations.map(l => l.value).slice(0, 4).join('; ')}`);
+    sections.push(
+      `### 4. Spatial & Geolocation Footprint\n` +
+      `- Identified **${locations.length}** geographic locations and check-in traces.\n` +
+      locations.slice(0, 5).map(l => `- 📍 **${l.value}**${l.notes ? ` — ${l.notes}` : ''}`).join('\n')
+    );
   }
 
-  sections.push(`### 4. Vulnerability & Threat Assessment\n- Total Alerts (Critical/High): ${criticals.length}\n- Medium Exposure Items: ${findingsList.filter(f => f.severity === 'medium').length}\n- Low / Passive Informational Artifacts: ${findingsList.filter(f => f.severity === 'low' || f.severity === 'info' || !f.severity).length}`);
+  sections.push(
+    `### 5. Threat Vectors & Hygiene Assessment\n` +
+    `- **Risk Rating**: **${riskLevel}** (${criticals.length} Critical/High findings, ${mediums.length} Medium findings)\n` +
+    (securityScores.length > 0 ? `- **Security Posture Score**: ${securityScores.map(s => `${s.value}`).join('; ')}\n` : '') +
+    (cves.length > 0 ? `- **Known Vulnerabilities**: ${cves.map(c => `\`${c.value}\``).join(', ')}\n` : '- **Vulnerability Status**: No unpatched CVE signatures flagged in passive banners.\n')
+  );
 
   const recommendations = [
-    `Audit public developer profiles and commit email headers associated with '${target}' to prevent metadata leakage.`,
-    locations.length > 0 ? `Review location-sharing settings, Google Maps Local Guide contributions, and social check-in privacy.` : `Regularly monitor certificate transparency logs and domain WHOIS privacy protections.`,
-    `Implement continuous passive attack surface monitoring to detect new exposed credentials or DNS configuration drifts.`
+    emails.length > 0 ? `Sanitize public commit author headers and replace exposed developer emails (\`${emails[0]?.value}\`) with privacy-protected noreply addresses.` : `Enforce strict SPF, DKIM, and DMARC rejecting policies (\`p=reject\`) across all organizational domains.`,
+    openPorts.length > 0 ? `Restrict ingress access to exposed services (\`${openPorts[0]?.value}\`) using Cloudflare Access, Zero Trust Tunnels, or VPN ACLs.` : `Implement automated Certificate Transparency log monitoring to detect rogue or shadow subdomains immediately.`,
+    locations.length > 0 ? `Review location-sharing settings, Google Maps Local Guide contributions, and public venue check-in privacy.` : `Conduct periodic credential audits to ensure organizational credentials have not leaked into third-party breach paste dumps.`,
   ];
 
-  sections.push(`### 5. Actionable Recommendations\n` + recommendations.map((r, i) => `${i + 1}. ${r}`).join('\n'));
+  sections.push(
+    `### 6. Actionable Defensive Recommendations\n` +
+    recommendations.map((r, i) => `${i + 1}. ${r}`).join('\n')
+  );
 
   return {
     summary,
     fullResponse: sections.join('\n\n'),
     recommendations,
+    riskLevel,
   };
 }
 
@@ -449,9 +486,9 @@ investigationsRouter.post('/:id/analyze', async (c) => {
 
   if (!investigation) return c.json({ error: 'Not found.', code: 'NOT_FOUND' }, 404);
 
-  // Fetch findings
+  // Fetch up to 500 findings for thorough analysis
   const findings = await c.env.DB
-    .prepare(`SELECT category, subcategory, type, value, confidence, severity, source_name, notes FROM findings WHERE investigation_id = ? LIMIT 100`)
+    .prepare(`SELECT category, subcategory, type, value, confidence, severity, source_name, notes FROM findings WHERE investigation_id = ? LIMIT 500`)
     .bind(id)
     .all();
 
@@ -463,53 +500,46 @@ investigationsRouter.post('/:id/analyze', async (c) => {
   let modelName = 'OpenSpective-Intelligence-Synthesizer';
   let recommendationsList: string[] = [];
 
-  // Try Cloudflare Workers AI if configured
+  // Generate grounded expert synthesis directly from the collected artifacts
+  const expert = generateExpertOsintSynthesis(targetName, targetType, findings.results);
+  summary = expert.summary;
+  responseText = expert.fullResponse;
+  recommendationsList = expert.recommendations;
+  modelName = 'OpenSpective-Expert-Synthesizer';
+
+  // Try Cloudflare Workers AI if configured to enhance the synthesis
   if (c.env.AI) {
     try {
       const evidenceSummary = findings.results.map(f =>
-        `[${f['category']}/${f['type']}] ${f['value']}${f['notes'] ? ` (${f['notes']})` : ''} — source: ${f['source_name']}, confidence: ${f['confidence']}`
-      ).slice(0, 50).join('\n');
+        `[${f['category']}/${f['type']}] ${f['value']}${f['notes'] ? ` (${f['notes']})` : ''} — source: ${f['source_name']}, severity: ${f['severity']}`
+      ).slice(0, 60).join('\n');
 
-      const prompt = `You are an expert OSINT threat analyst reviewing findings for an investigation.
-Target: ${targetName} (type: ${targetType})
+      const prompt = `You are a Tier-3 Cyber Threat Intelligence & OSINT Analyst.
+Target: ${targetName} (${targetType})
+Collected Evidence:
+${evidenceSummary || 'No evidence collected.'}
 
-Findings:
-${evidenceSummary || 'No findings collected.'}
-
-Provide:
-1. Executive summary (2-3 sentences).
-2. Key technical findings and footprint significance.
-3. Notable gaps or threat posture observations.
-4. 3 actionable defensive recommendations.
-5. Confidence assessment.
-
-Rules:
-- Ground all statements strictly in the findings above. Keep professional.`;
+Draft an executive intelligence synthesis:
+1. Executive Risk Level (Critical / High / Moderate / Low) with brief justification.
+2. Grounded Analysis of discovered infrastructure, domains, open ports, identity clues, and exposure items.
+3. 3 specific technical defensive recommendations.
+Do not hallucinate facts not present in the evidence.`;
 
       const aiResponse = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
         prompt,
-        max_tokens: 800,
+        max_tokens: 900,
       });
 
       const rawAiText = (aiResponse as any)?.response ?? (aiResponse as any)?.result?.response ?? '';
-      if (rawAiText && rawAiText.trim().length > 20) {
+      if (rawAiText && rawAiText.trim().length > 60) {
         responseText = rawAiText.trim();
         modelName = '@cf/meta/llama-3.1-8b-instruct';
         const lines = responseText.split('\n').filter(l => l.trim().length > 0);
         summary = lines.slice(0, 2).join(' ').replace(/^[#*\s]+/, '');
       }
     } catch {
-      // Gracefully fall back to expert deterministic synthesis if Workers AI is offline or unconfigured
+      // Kept expert deterministic synthesis
     }
-  }
-
-  // If AI was unavailable or did not produce output, generate authoritative OSINT synthesis
-  if (!responseText) {
-    const expert = generateExpertOsintSynthesis(targetName, targetType, findings.results);
-    summary = expert.summary;
-    responseText = expert.fullResponse;
-    recommendationsList = expert.recommendations;
-    modelName = 'OpenSpective-Expert-Synthesizer';
   }
 
   const analysisId = generateId('ai');

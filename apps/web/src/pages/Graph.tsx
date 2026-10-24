@@ -72,7 +72,7 @@ function GraphViewInner() {
   const [hoveredNode, setHoveredNode] = useState<{ raw: any; x: number; y: number } | null>(null);
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [layout, setLayout] = useState<LayoutType>('radial');
+  const [layout, setLayout] = useState<LayoutType>('concentric');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const reactFlowInstance = useReactFlow();
@@ -150,7 +150,7 @@ function GraphViewInner() {
 
     if (layout === 'radial') {
       const angleStep = (2 * Math.PI) / (count > 1 ? count - 1 : 1);
-      const radius = Math.max(240, count * 36);
+      const radius = Math.min(380, Math.max(180, count * 16));
       let nonRootIndex = 0;
 
       filteredRawNodes.forEach((n: any, idx: number) => {
@@ -165,7 +165,7 @@ function GraphViewInner() {
         }
       });
     } else if (layout === 'concentric') {
-      // Group into inner ring (high priority / infrastructure) and outer ring
+      // Group into Ring 1 (core infrastructure & identities) and outer rings
       const innerTypes = new Set(['domain', 'email', 'ip', 'person', 'username']);
       const innerNodes: any[] = [];
       const outerNodes: any[] = [];
@@ -180,7 +180,7 @@ function GraphViewInner() {
         positions[filteredRawNodes[0].id] = { x: 500, y: 350 };
       }
 
-      const innerRadius = 220;
+      const innerRadius = 200;
       const innerStep = (2 * Math.PI) / (innerNodes.length || 1);
       innerNodes.forEach((n, idx) => {
         positions[n.id] = {
@@ -189,14 +189,38 @@ function GraphViewInner() {
         };
       });
 
-      const outerRadius = Math.max(420, innerRadius + outerNodes.length * 20);
-      const outerStep = (2 * Math.PI) / (outerNodes.length || 1);
-      outerNodes.forEach((n, idx) => {
-        positions[n.id] = {
-          x: 500 + Math.cos(idx * outerStep) * outerRadius,
-          y: 350 + Math.sin(idx * outerStep) * outerRadius,
-        };
-      });
+      // Split outer nodes into 2 rings if there are more than 22 to avoid crowding
+      if (outerNodes.length <= 22) {
+        const outerRadius = 350;
+        const outerStep = (2 * Math.PI) / (outerNodes.length || 1);
+        outerNodes.forEach((n, idx) => {
+          positions[n.id] = {
+            x: 500 + Math.cos(idx * outerStep) * outerRadius,
+            y: 350 + Math.sin(idx * outerStep) * outerRadius,
+          };
+        });
+      } else {
+        const ring2Nodes = outerNodes.slice(0, Math.ceil(outerNodes.length / 2));
+        const ring3Nodes = outerNodes.slice(Math.ceil(outerNodes.length / 2));
+
+        const r2Radius = 330;
+        const r2Step = (2 * Math.PI) / (ring2Nodes.length || 1);
+        ring2Nodes.forEach((n, idx) => {
+          positions[n.id] = {
+            x: 500 + Math.cos(idx * r2Step) * r2Radius,
+            y: 350 + Math.sin(idx * r2Step) * r2Radius,
+          };
+        });
+
+        const r3Radius = 450;
+        const r3Step = (2 * Math.PI) / (ring3Nodes.length || 1);
+        ring3Nodes.forEach((n, idx) => {
+          positions[n.id] = {
+            x: 500 + Math.cos(idx * r3Step) * r3Radius,
+            y: 350 + Math.sin(idx * r3Step) * r3Radius,
+          };
+        });
+      }
     } else if (layout === 'hierarchy') {
       // Hierarchical levels: Level 0: root, Level 1: domain/ip/user, Level 2: others
       const levels: Record<number, any[]> = { 0: [], 1: [], 2: [] };
@@ -236,7 +260,7 @@ function GraphViewInner() {
     return positions;
   }, [filteredRawNodes, layout]);
 
-  // Construct Flow Nodes with modern color blocks
+  // Construct Flow Nodes with clean minimalist cards
   const flowNodes: Node[] = useMemo(() => {
     return filteredRawNodes.map((n: any, idx: number) => {
       const isRoot = idx === 0 && filterType === 'all' && !searchQuery.trim();
@@ -256,67 +280,68 @@ function GraphViewInner() {
         data: {
           label: (
             <div style={{
-              borderRadius: '9px',
+              borderRadius: '8px',
               overflow: 'hidden',
-              minWidth: '150px',
-              maxWidth: '220px',
+              width: '180px',
               boxShadow: isSelected
-                ? `0 0 22px ${color}80, 0 8px 24px rgba(0,0,0,0.18)`
+                ? `0 0 20px ${color}90, 0 8px 24px rgba(0,0,0,0.2)`
                 : isHovered
-                ? `0 0 16px ${color}60, 0 6px 18px rgba(0,0,0,0.12)`
-                : '0 4px 14px rgba(0,0,0,0.08)',
+                ? `0 0 14px ${color}60, 0 4px 16px rgba(0,0,0,0.12)`
+                : '0 2px 10px rgba(0,0,0,0.06)',
               border: isSelected
                 ? `2px solid ${color}`
                 : isHovered
                 ? `2px solid ${color}`
                 : '1px solid rgba(0,0,0,0.08)',
               background: '#ffffff',
+              borderLeft: `5px solid ${color}`,
             }}>
-              {/* Category Color Block Header */}
+              {/* Category Color Sub-Header */}
               <div style={{
-                background: color,
                 padding: '4px 8px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                color: '#ffffff',
+                background: `${color}14`,
+                borderBottom: '1px solid rgba(0,0,0,0.04)',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color }}>
                   {getNodeIcon(n.type)}
                   <span style={{
                     fontSize: '9px',
                     fontWeight: 800,
                     textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
+                    letterSpacing: '0.05em',
                   }}>
                     {n.type}
                   </span>
                 </div>
-                <span style={{
-                  fontSize: '8px',
-                  background: 'rgba(255, 255, 255, 0.28)',
-                  padding: '1px 5px',
-                  borderRadius: '4px',
-                  fontWeight: 700,
-                  whiteSpace: 'nowrap',
-                }}>
-                  {connectionCount} {connectionCount === 1 ? 'link' : 'links'}
-                </span>
+                {connectionCount > 0 && (
+                  <span style={{
+                    fontSize: '8.5px',
+                    background: 'rgba(0, 0, 0, 0.08)',
+                    color: '#334155',
+                    padding: '1px 5px',
+                    borderRadius: '4px',
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {connectionCount}
+                  </span>
+                )}
               </div>
 
-              {/* Node Body Card */}
-              <div style={{
-                padding: '7px 10px',
-                background: isSelected ? 'rgba(255, 255, 255, 0.98)' : '#ffffff',
-                textAlign: 'left',
-              }}>
+              {/* Node Body Label */}
+              <div style={{ padding: '6px 8px', textAlign: 'left' }}>
                 <div style={{
-                  fontSize: isRoot ? '12.5px' : '11.5px',
+                  fontSize: isRoot ? '12px' : '11px',
                   fontWeight: 700,
                   color: '#0f172a',
-                  wordBreak: 'break-all',
-                  lineHeight: 1.3,
-                }}>
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: '164px',
+                }} title={n.label || n.value}>
                   {n.label || n.value}
                 </div>
               </div>
@@ -338,7 +363,7 @@ function GraphViewInner() {
     });
   }, [filteredRawNodes, layoutedPositions, selectedNode, hoveredNode, connectedNeighborIds, filterType, searchQuery, nodeConnectionMap]);
 
-  // Construct Flow Edges with dynamic highlights and animated pulses
+  // Construct Flow Edges with smooth Bezier curves and animated pulses
   const flowEdges: Edge[] = useMemo(() => {
     if (!rawGraph?.edges) return [];
     const visibleIds = new Set(filteredRawNodes.map((n: any) => n.id));
@@ -356,23 +381,25 @@ function GraphViewInner() {
           source: e.source,
           target: e.target,
           label: e.label || e.type,
-          type: 'smoothstep',
+          type: 'default', // Smooth cubic Bezier curves
           animated: isHighlighted,
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: isConnectedToHovered ? '#3b82f6' : isConnectedToSelected ? 'var(--color-accent)' : '#94a3b8',
+            color: isConnectedToHovered ? '#3b82f6' : isConnectedToSelected ? '#10b981' : '#94a3b8',
+            width: 14,
+            height: 14,
           },
           style: {
-            stroke: isConnectedToHovered ? '#3b82f6' : isConnectedToSelected ? 'var(--color-accent)' : '#94a3b8',
-            strokeWidth: isHighlighted ? 2.5 : 1.5,
-            opacity: isDimmed ? 0.12 : 1,
+            stroke: isConnectedToHovered ? '#3b82f6' : isConnectedToSelected ? '#10b981' : 'rgba(148, 163, 184, 0.45)',
+            strokeWidth: isHighlighted ? 2.5 : 1.2,
+            opacity: isDimmed ? 0.08 : 1,
             transition: 'all 0.25s ease',
           },
           labelStyle: {
-            fill: isConnectedToHovered ? '#1d4ed8' : isConnectedToSelected ? 'var(--color-accent-dark)' : '#64748b',
+            fill: isConnectedToHovered ? '#1d4ed8' : isConnectedToSelected ? '#059669' : '#64748b',
             fontSize: 10,
             fontWeight: isHighlighted ? 700 : 500,
-            opacity: isDimmed ? 0.15 : 1,
+            opacity: isDimmed ? 0.12 : 1,
           },
           data: e,
         };
@@ -599,6 +626,12 @@ function GraphViewInner() {
               setHoveredNode(null);
             }}
             fitView
+            panOnScroll={false}
+            zoomOnPinch={true}
+            panOnDrag={true}
+            zoomOnScroll={true}
+            minZoom={0.15}
+            maxZoom={2.5}
           >
             <MiniMap
               nodeColor={(n) => NODE_TYPE_COLORS[n.data?.raw?.type?.toLowerCase()] || '#10b981'}
@@ -613,6 +646,63 @@ function GraphViewInner() {
             <Background gap={18} size={1} color="var(--color-border)" />
           </ReactFlow>
         )}
+
+        {/* Floating Quick Touch & Mouse Navigation Toolbar */}
+        <div style={{
+          position: 'absolute',
+          bottom: '24px',
+          left: '24px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          background: 'var(--glass-bg)',
+          backdropFilter: 'blur(16px)',
+          border: '1px solid var(--glass-border)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '6px 10px',
+          boxShadow: 'var(--shadow-lg)',
+          zIndex: 10,
+        }}>
+          <button
+            onClick={() => reactFlowInstance.zoomIn({ duration: 300 })}
+            className="btn btn-ghost btn-xs"
+            title="Zoom In"
+            style={{ fontWeight: 700, fontSize: '15px', width: '28px', height: '28px', padding: 0 }}
+          >
+            +
+          </button>
+          <button
+            onClick={() => reactFlowInstance.zoomOut({ duration: 300 })}
+            className="btn btn-ghost btn-xs"
+            title="Zoom Out"
+            style={{ fontWeight: 700, fontSize: '15px', width: '28px', height: '28px', padding: 0 }}
+          >
+            -
+          </button>
+          <button
+            onClick={handleRecenter}
+            className="btn btn-ghost btn-xs"
+            title="Fit to screen & center graph"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}
+          >
+            <Maximize2 size={12} /> Fit
+          </button>
+          <div style={{ width: '1px', height: '16px', background: 'var(--color-border)', margin: '0 2px' }} />
+          <button
+            onClick={() => setLayout('concentric')}
+            className={`btn btn-xs ${layout === 'concentric' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: '11px', padding: '3px 8px' }}
+          >
+            Clustered
+          </button>
+          <button
+            onClick={() => setLayout('radial')}
+            className={`btn btn-xs ${layout === 'radial' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: '11px', padding: '3px 8px' }}
+          >
+            Radial
+          </button>
+        </div>
 
         {/* Floating On-Hover Intelligence Info Card */}
         {hoveredNode && !selectedNode && (
@@ -666,7 +756,9 @@ function GraphViewInner() {
               position: 'absolute',
               top: '20px',
               right: '20px',
-              width: '360px',
+              width: 'min(360px, calc(100vw - 32px))',
+              maxHeight: 'calc(100vh - 160px)',
+              overflowY: 'auto',
               padding: 'var(--space-5)',
               zIndex: 20,
               boxShadow: 'var(--shadow-xl)',
@@ -703,7 +795,7 @@ function GraphViewInner() {
               Entity Identifier: <code>{selectedNode.id}</code>
             </div>
 
-            {/* Connected Neighbors Count */}
+            {/* Connected Neighbors Count & Quick Actions */}
             <div style={{
               background: 'var(--glass-bg-subtle)',
               border: '1px solid var(--color-border)',
@@ -720,6 +812,49 @@ function GraphViewInner() {
               <strong style={{ color: 'var(--color-accent)' }}>{connectedNeighborIds.size - 1} adjacent</strong>
             </div>
 
+            {/* Clickable Adjacent Neighbor Entities Pills */}
+            {connectedNeighborIds.size > 1 && (
+              <div style={{ marginBottom: 'var(--space-4)' }}>
+                <div style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>
+                  Connected Entities ({connectedNeighborIds.size - 1})
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxHeight: '110px', overflowY: 'auto' }}>
+                  {filteredRawNodes
+                    .filter((n: any) => n.id !== selectedNode.id && connectedNeighborIds.has(n.id))
+                    .map((n: any) => {
+                      const nColor = NODE_TYPE_COLORS[n.type?.toLowerCase()] || '#10b981';
+                      return (
+                        <button
+                          key={n.id}
+                          onClick={() => setSelectedNode(n)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: `${nColor}15`,
+                            color: nColor,
+                            border: `1px solid ${nColor}40`,
+                            borderRadius: '4px',
+                            padding: '2px 6px',
+                            fontSize: '10.5px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            maxWidth: '160px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={`Focus ${n.label || n.value}`}
+                        >
+                          {getNodeIcon(n.type)}
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.label || n.value}</span>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
             {/* Location Specific Map Actions */}
             {selectedNode.type?.toLowerCase() === 'location' && (
               <div style={{
@@ -734,7 +869,11 @@ function GraphViewInner() {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedNode.value || selectedNode.label)}`}
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                      (selectedNode.value || selectedNode.label || '').match(/(-?\d+\.\d+),\s*(-?\d+\.\d+)/)
+                        ? (selectedNode.value || selectedNode.label).match(/(-?\d+\.\d+),\s*(-?\d+\.\d+)/)![0]
+                        : selectedNode.value || selectedNode.label
+                    )}`}
                     target="_blank"
                     rel="noreferrer"
                     className="btn btn-sm"

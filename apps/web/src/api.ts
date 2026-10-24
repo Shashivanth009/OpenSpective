@@ -212,6 +212,7 @@ export async function listInvestigations(page = 1, pageSize = 20): Promise<{
 export async function getInvestigation(id: string): Promise<{
   investigation: Investigation;
   executions: CollectorExecution[];
+  aiAnalysis?: any;
 }> {
   return apiFetch(`/investigations/${id}`);
 }

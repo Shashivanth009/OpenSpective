@@ -5,7 +5,7 @@ import {
   FileText, ChevronDown, ChevronRight, Clock,
   ShieldCheck, BarChart3, CornerUpRight, ExternalLink,
   Copy, Check, Database, MapPin, Compass, Search,
-  FileSpreadsheet, FileCode
+  FileSpreadsheet, FileCode, Info, X
 } from 'lucide-react';
 import { OSINT_TOOLS_REGISTRY, OSINT_CATEGORIES } from '@openspective/shared';
 import { jsPDF } from 'jspdf';
@@ -22,6 +22,7 @@ export default function InvestigationDetailPage() {
   const [analyzingAi, setAnalyzingAi] = useState(false);
   const [aiReport, setAiReport] = useState<any>(null);
   const [expandedFinding, setExpandedFinding] = useState<string | null>(null);
+  const [selectedFindingModal, setSelectedFindingModal] = useState<api.Finding | null>(null);
   const [activeTab, setActiveTab] = useState<'findings' | 'timeline' | 'scorecard' | 'dorks'>('findings');
   const [dorkEngineFilter, setDorkEngineFilter] = useState<string>('all');
   const [selectedCollector, setSelectedCollector] = useState<string | null>(null);
@@ -94,6 +95,9 @@ export default function InvestigationDetailPage() {
       ]);
       setInvestigation(invRes.investigation);
       setExecutions(invRes.executions);
+      if (invRes.aiAnalysis) {
+        setAiReport(invRes.aiAnalysis);
+      }
       setFindings(findRes.data);
     } catch (err: any) {
       setError(err?.message || 'Failed to load investigation details.');
@@ -422,7 +426,8 @@ export default function InvestigationDetailPage() {
           drawPageFooter(i, totalPages);
         }
 
-        doc.save(filename);
+        const pdfBlob = doc.output('blob');
+        triggerDownload(pdfBlob, filename);
       } else if (format === 'json') {
         const reportData = {
           meta: {
@@ -738,6 +743,42 @@ export default function InvestigationDetailPage() {
     if (f.type === 'github_profile') {
       return { target: f.value, type: 'username' };
     }
+    return null;
+  };
+
+  // Helper to extract a high-accuracy Google Maps query URL
+  const getMapQueryUrl = (f: api.Finding): string => {
+    const raw = getRawDataObj(f);
+    if (raw?.lat && raw?.lon) {
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${raw.lat},${raw.lon}`)}`;
+    }
+    if (raw?.latitude && raw?.longitude) {
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${raw.latitude},${raw.longitude}`)}`;
+    }
+    if (raw?.mapsUrl) {
+      return raw.mapsUrl;
+    }
+    if (f.source_url && (f.source_url.includes('google.com/maps') || f.source_url.includes('openstreetmap.org'))) {
+      return f.source_url;
+    }
+    const matchCoord = (f.value + ' ' + (f.notes || '')).match(/(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+    if (matchCoord) {
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${matchCoord[1]},${matchCoord[2]}`)}`;
+    }
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(f.value)}`;
+  };
+
+  // Helper to get verified evidence source URL
+  const getVerificationUrl = (f: api.Finding): string | null => {
+    if (f.source_url && !f.source_url.startsWith('javascript:')) return f.source_url;
+    const raw = getRawDataObj(f);
+    if (raw?.url) return raw.url;
+    if (raw?.profile_url) return raw.profile_url;
+    if (raw?.commit_url) return raw.commit_url;
+    if (raw?.repo_url) return raw.repo_url;
+    if (raw?.link) return raw.link;
+    if (f.category === 'location_intelligence') return getMapQueryUrl(f);
+    if (f.value.startsWith('http://') || f.value.startsWith('https://')) return f.value;
     return null;
   };
 
@@ -1591,126 +1632,135 @@ export default function InvestigationDetailPage() {
                 <table className="table" style={{ width: '100%' }}>
                   <thead>
                     <tr>
-                      <th style={{ width: '120px' }}>Category</th>
-                      <th style={{ width: '140px' }}>Type</th>
-                      <th>Value</th>
+                      <th style={{ width: '150px' }}>Category & Type</th>
+                      <th>Intelligence Clue / Discovered Value</th>
                       <th style={{ width: '100px' }}>Severity</th>
-                      <th style={{ width: '100px' }}>Confidence</th>
-                      <th style={{ width: '160px' }}>Source</th>
-                      <th style={{ width: '90px' }}>Action</th>
+                      <th style={{ width: '90px' }}>Confidence</th>
+                      <th style={{ width: '140px' }}>Source Engine</th>
+                      <th style={{ width: '220px', textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredFindings.map(f => {
                       const isExpanded = expandedFinding === f.id;
                       const pivot = detectPivotTarget(f);
+                      const isLocation = f.category === 'location_intelligence' || f.type.includes('location') || f.type.includes('venue');
+                      const mapUrl = getMapQueryUrl(f);
+                      const verifyUrl = getVerificationUrl(f);
+                      const isVerified = getRawDataObj(f)?.verified === true || (f.notes && f.notes.includes('✓'));
+
                       return (
                         <>
-                          <tr key={f.id} style={{ cursor: 'pointer' }} onClick={() => setExpandedFinding(isExpanded ? null : f.id)}>
+                          <tr key={f.id} style={{ background: isExpanded ? 'var(--color-surface-elevated)' : undefined }}>
                             <td>
-                              <span className="badge badge-neutral" style={{ textTransform: 'capitalize' }}>
-                                {f.category.replace('_', ' ')}
-                              </span>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                <span className="badge badge-neutral" style={{ textTransform: 'capitalize', width: 'fit-content' }}>
+                                  {f.category.replace('_', ' ')}
+                                </span>
+                                <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                                  {f.type}
+                                </span>
+                              </div>
                             </td>
-                            <td style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)' }}>
-                              {f.type}
-                            </td>
-                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', wordBreak: 'break-all' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                                <span>{f.value}</span>
-                                {getRawDataObj(f)?.verified === true && (
+                            <td style={{ wordBreak: 'break-all' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', marginBottom: '2px' }}>
+                                <strong style={{ fontSize: '13px', color: 'var(--color-dark)' }}>{f.value}</strong>
+                                {isVerified && (
                                   <span className="badge badge-success" style={{ fontSize: '10px', padding: '1px 6px', display: 'inline-flex', alignItems: 'center', gap: '3px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>
-                                    <Check size={10} /> Verified Profile
+                                    <Check size={10} /> Verified Clue
                                   </span>
-                                )}
-                                {f.source_url && (
-                                  <a
-                                    href={f.source_url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    title="Open source URL in new tab"
-                                    style={{ color: 'var(--color-accent)', display: 'inline-flex' }}
-                                  >
-                                    <ExternalLink size={13} />
-                                  </a>
                                 )}
                               </div>
                               {f.notes && (
-                                <div style={{ fontSize: 'var(--text-xs)', color: f.notes.includes('✓') ? '#059669' : 'var(--color-text-secondary)', fontFamily: 'var(--font-sans)', marginTop: 2, fontWeight: f.notes.includes('✓') ? 600 : 400 }}>
+                                <div style={{ fontSize: '11.5px', color: isVerified ? '#059669' : 'var(--color-text-secondary)', lineHeight: 1.4 }}>
                                   {f.notes}
-                                </div>
-                              )}
-                              {f.type === 'osint_search_dork' && f.source_url && (
-                                <div style={{ marginTop: '6px' }}>
-                                  <a
-                                    href={f.source_url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="btn btn-xs"
-                                    style={{
-                                      background: 'var(--color-surface-elevated)',
-                                      color: 'var(--color-accent)',
-                                      border: '1px solid var(--color-border)',
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      fontSize: '11px',
-                                      padding: '2px 8px'
-                                    }}
-                                  >
-                                    <Search size={11} /> Launch OSINT Technique ({getRawDataObj(f)?.search_engine || 'Web'})
-                                  </a>
-                                </div>
-                              )}
-                              {f.category === 'location_intelligence' && (
-                                <div style={{ marginTop: '6px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                  <a
-                                    href={f.source_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(f.value)}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="btn btn-xs"
-                                    style={{
-                                      background: '#fff1f2',
-                                      color: '#e11d48',
-                                      border: '1px solid #fecdd3',
-                                      fontWeight: 600,
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      padding: '2px 8px'
-                                    }}
-                                  >
-                                    <MapPin size={12} /> Open in Google Maps
-                                  </a>
                                 </div>
                               )}
                             </td>
                             <td>{getSeverityBadge(f.severity)}</td>
                             <td>
-                              <span style={{ fontSize: 'var(--text-xs)', textTransform: 'capitalize' }}>
+                              <span style={{ fontSize: '11px', textTransform: 'capitalize', fontWeight: 600 }}>
                                 {f.confidence}
                               </span>
                             </td>
-                            <td style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
+                            <td style={{ fontSize: '11.5px', color: 'var(--color-text-secondary)' }}>
                               {f.source_name}
                             </td>
-                            <td style={{ textAlign: 'center' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 'var(--space-2)' }}>
+                            <td style={{ textAlign: 'right' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px', flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedFindingModal(f)}
+                                  className="btn btn-secondary btn-xs"
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                  title="View deep finding intelligence and raw payload"
+                                >
+                                  <Info size={12} /> Details
+                                </button>
+
+                                {isLocation && (
+                                  <a
+                                    href={mapUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="btn btn-xs"
+                                    style={{
+                                      background: '#fff1f2',
+                                      color: '#e11d48',
+                                      border: '1px solid #fecdd3',
+                                      fontWeight: 700,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      padding: '2px 8px',
+                                      textDecoration: 'none'
+                                    }}
+                                    title="Open verified location coordinates in Google Maps"
+                                  >
+                                    <MapPin size={12} /> Google Maps ↗
+                                  </a>
+                                )}
+
+                                {verifyUrl && !isLocation && (
+                                  <a
+                                    href={verifyUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="btn btn-xs btn-ghost"
+                                    style={{
+                                      color: 'var(--color-accent)',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      padding: '2px 6px',
+                                      textDecoration: 'none'
+                                    }}
+                                    title="Verify clue directly on original OSINT source"
+                                  >
+                                    <ExternalLink size={12} /> Verify Clue ↗
+                                  </a>
+                                )}
+
                                 {pivot && (
                                   <Link
                                     to={`/investigate?q=${encodeURIComponent(pivot.target)}`}
-                                    onClick={(e) => e.stopPropagation()}
                                     className="btn btn-xs btn-ghost"
                                     title={`Pivot to new investigation on ${pivot.target}`}
-                                    style={{ color: 'var(--color-accent)' }}
+                                    style={{ color: 'var(--color-accent)', padding: '2px 5px' }}
                                   >
-                                    <CornerUpRight size={14} />
+                                    <Compass size={13} />
                                   </Link>
                                 )}
-                                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedFinding(isExpanded ? null : f.id)}
+                                  className="btn btn-ghost btn-xs"
+                                  style={{ padding: '2px 4px', color: 'var(--color-text-muted)' }}
+                                  title={isExpanded ? 'Collapse inline raw data' : 'Expand inline raw data'}
+                                >
+                                  {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                </button>
                               </div>
                             </td>
                           </tr>
@@ -2115,6 +2165,271 @@ export default function InvestigationDetailPage() {
           })()}
         </div>
       )}
+
+      {/* ======================================================== */}
+      {/* DETAILED FINDING & EVIDENCE CLUE MODAL                   */}
+      {/* ======================================================== */}
+      {selectedFindingModal && (() => {
+        const f = selectedFindingModal;
+        const isLocation = f.category === 'location_intelligence' || f.type.includes('location') || f.type.includes('venue');
+        const mapUrl = getMapQueryUrl(f);
+        const verifyUrl = getVerificationUrl(f);
+        const isVerified = getRawDataObj(f)?.verified === true || (f.notes && f.notes.includes('✓'));
+        const pivot = detectPivotTarget(f);
+        const rawJsonString = (() => {
+          try {
+            return JSON.stringify(typeof f.raw_data === 'string' ? JSON.parse(f.raw_data) : f.raw_data, null, 2);
+          } catch {
+            return String(f.raw_data || '{}');
+          }
+        })();
+
+        return (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(15, 23, 42, 0.65)',
+              backdropFilter: 'blur(8px)',
+              zIndex: 99999,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 'var(--space-4)',
+            }}
+            onClick={() => setSelectedFindingModal(null)}
+          >
+            <div
+              className="glass-card"
+              style={{
+                width: '100%',
+                maxWidth: '680px',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+                padding: 'var(--space-6)',
+                borderRadius: 'var(--radius-lg)',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+                border: '1px solid var(--glass-border)',
+                background: 'var(--color-bg)',
+                position: 'relative',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-4)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                  <span className="badge badge-neutral" style={{ textTransform: 'capitalize', fontSize: '12px' }}>
+                    {f.category.replace('_', ' ')}
+                  </span>
+                  <span style={{ fontSize: '12px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                    {f.type}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedFindingModal(null)}
+                  className="btn btn-ghost btn-sm"
+                  style={{ padding: '4px', borderRadius: '50%', color: 'var(--color-text-muted)' }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Finding Value Display */}
+              <div style={{
+                background: 'var(--color-surface-elevated)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius)',
+                padding: 'var(--space-4)',
+                marginBottom: 'var(--space-4)',
+              }}>
+                <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-text-muted)', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.05em' }}>
+                  Discovered Intelligence Value
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)' }}>
+                  <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-dark)', wordBreak: 'break-all' }}>
+                    {f.value}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyRaw(f.value, `modal-val-${f.id}`)}
+                    className="btn btn-secondary btn-xs"
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    {copiedId === `modal-val-${f.id}` ? <Check size={12} /> : <Copy size={12} />}
+                    {copiedId === `modal-val-${f.id}` ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Geolocation Section for Location Findings */}
+              {isLocation && (
+                <div style={{
+                  background: 'rgba(244, 63, 94, 0.08)',
+                  border: '1.5px solid rgba(244, 63, 94, 0.25)',
+                  borderRadius: 'var(--radius)',
+                  padding: 'var(--space-4)',
+                  marginBottom: 'var(--space-4)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e11d48', fontWeight: 700, fontSize: '13px', marginBottom: '8px' }}>
+                    <MapPin size={16} /> Physical Geolocation & Review Attribution
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: '0 0 12px 0', lineHeight: 1.5 }}>
+                    Extracted from spatial data, review check-ins, or physical address registry records.
+                  </p>
+                  <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                    <a
+                      href={mapUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn btn-sm"
+                      style={{ background: '#e11d48', color: '#fff', border: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <MapPin size={14} /> Open in Google Maps
+                    </a>
+                    <a
+                      href={`https://www.openstreetmap.org/search?query=${encodeURIComponent(f.value)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn btn-secondary btn-sm"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <ExternalLink size={14} /> Open in OpenStreetMap
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* Source Verification Clue Block */}
+              {verifyUrl && (
+                <div style={{
+                  background: 'rgba(16, 185, 129, 0.08)',
+                  border: '1.5px solid rgba(16, 185, 129, 0.25)',
+                  borderRadius: 'var(--radius)',
+                  padding: 'var(--space-4)',
+                  marginBottom: 'var(--space-4)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#059669', fontWeight: 700, fontSize: '13px' }}>
+                      <Check size={16} /> Evidence Clue Grounding & Live Verification
+                    </div>
+                    {isVerified && (
+                      <span className="badge badge-success" style={{ fontSize: '10px' }}>
+                        Verified Match
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: '0 0 10px 0', lineHeight: 1.5 }}>
+                    This clue corresponds to an active public profile, repository, DNS record, or external registry entry.
+                  </p>
+                  <a
+                    href={verifyUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-primary btn-sm"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <ExternalLink size={14} /> Verify Clue at Live Source Platform ↗
+                  </a>
+                </div>
+              )}
+
+              {/* Metadata 4-Box Grid */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                gap: 'var(--space-3)',
+                marginBottom: 'var(--space-4)',
+              }}>
+                <div style={{ background: 'var(--color-surface)', padding: 'var(--space-3)', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Severity</div>
+                  <div style={{ marginTop: '4px' }}>{getSeverityBadge(f.severity)}</div>
+                </div>
+                <div style={{ background: 'var(--color-surface)', padding: 'var(--space-3)', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Confidence</div>
+                  <div style={{ marginTop: '4px', fontSize: '13px', fontWeight: 700, textTransform: 'capitalize', color: f.confidence === 'high' ? '#059669' : 'var(--color-dark)' }}>
+                    {f.confidence}
+                  </div>
+                </div>
+                <div style={{ background: 'var(--color-surface)', padding: 'var(--space-3)', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Source Collector</div>
+                  <div style={{ marginTop: '4px', fontSize: '12px', fontWeight: 600, color: 'var(--color-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {f.source_name}
+                  </div>
+                </div>
+                <div style={{ background: 'var(--color-surface)', padding: 'var(--space-3)', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>First Discovered</div>
+                  <div style={{ marginTop: '4px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                    {new Date(f.first_seen).toLocaleDateString()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Notes / Attribution */}
+              {f.notes && (
+                <div style={{
+                  background: 'var(--color-surface)',
+                  padding: 'var(--space-3) var(--space-4)',
+                  borderRadius: 'var(--radius)',
+                  border: '1px solid var(--color-border)',
+                  marginBottom: 'var(--space-4)',
+                  fontSize: '12.5px',
+                  lineHeight: 1.5,
+                  color: 'var(--color-text-secondary)',
+                }}>
+                  <strong style={{ color: 'var(--color-dark)' }}>Investigative Context: </strong>
+                  {f.notes}
+                </div>
+              )}
+
+              {/* Raw JSON Data Payload with Copy */}
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 'var(--space-4)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
+                    Raw Structured Metadata (JSON)
+                  </span>
+                  <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                    {pivot && (
+                      <Link
+                        to={`/investigate?q=${encodeURIComponent(pivot.target)}`}
+                        className="btn btn-primary btn-xs"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        <Compass size={12} /> Pivot to {pivot.target}
+                      </Link>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleCopyRaw(rawJsonString, `modal-raw-${f.id}`)}
+                      className="btn btn-secondary btn-xs"
+                    >
+                      {copiedId === `modal-raw-${f.id}` ? <Check size={12} /> : <Copy size={12} />}
+                      {copiedId === `modal-raw-${f.id}` ? 'Copied' : 'Copy JSON'}
+                    </button>
+                  </div>
+                </div>
+
+                <pre style={{
+                  margin: 0,
+                  padding: 'var(--space-3)',
+                  background: '#0f172a',
+                  color: '#f8fafc',
+                  borderRadius: 'var(--radius)',
+                  fontSize: '11px',
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  lineHeight: 1.45,
+                }}>
+                  {rawJsonString}
+                </pre>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

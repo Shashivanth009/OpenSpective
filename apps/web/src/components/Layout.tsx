@@ -1,7 +1,7 @@
-import { Outlet, NavLink, Link } from 'react-router-dom';
+import { Outlet, NavLink, Link, useLocation } from 'react-router-dom';
 import {
   Search, LayoutDashboard, History, Settings,
-  Sun, Moon, Shield, BookOpen, Compass
+  Sun, Moon, Shield, BookOpen, Compass, Menu, X
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
@@ -33,6 +33,13 @@ export default function Layout({ minimal, showSidebar }: LayoutProps) {
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
     (localStorage.getItem('os_theme') as 'light' | 'dark') ?? 'light'
   );
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const location = useLocation();
+
+  // Close mobile menu on page navigation
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -50,89 +57,137 @@ export default function Layout({ minimal, showSidebar }: LayoutProps) {
   ];
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Navigation */}
-      <nav className="nav">
-        <div className="nav-inner">
-          <Link to="/" className="nav-logo">
-            <Logo />
-            Open<span>Spective</span>
-          </Link>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--color-bg)' }}>
+      {/* Navigation Top Bar */}
+      <nav className="nav glass-nav">
+        <div className="nav-inner" style={{ height: '64px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 var(--space-5)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            {showSidebar && (
+              <button
+                className="mobile-menu-btn btn btn-ghost btn-sm"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                aria-label="Toggle navigation menu"
+                style={{ padding: '6px', display: 'none' }}
+              >
+                {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+              </button>
+            )}
+
+            <Link to="/" className="nav-logo" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Logo size={32} />
+              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+                <span style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--color-dark)' }}>
+                  Open<span style={{ color: 'var(--color-accent)' }}>Spective</span>
+                </span>
+                <span style={{ fontSize: '9px', fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  Passive Reconnaissance
+                </span>
+              </div>
+            </Link>
+          </div>
 
           {!minimal && (
-            <>
-              <div className="nav-links" style={{ flex: 1, justifyContent: 'center' }}>
-                {!showSidebar && (
-                  <>
-                    <NavLink to="/framework" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>OSINT Framework</NavLink>
-                    <NavLink to="/docs" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Docs</NavLink>
-                    <NavLink to="/privacy" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Privacy</NavLink>
-                  </>
-                )}
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+              {!showSidebar && (
+                <div className="nav-links" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
+                  <NavLink to="/framework" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>OSINT Framework</NavLink>
+                  <NavLink to="/docs" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Docs</NavLink>
+                  <NavLink to="/privacy" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>Privacy</NavLink>
+                </div>
+              )}
 
-              <div className="flex items-center gap-3">
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={toggleTheme}
-                  aria-label="Toggle theme"
-                  style={{ padding: '8px' }}
-                >
-                  {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
-                </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={toggleTheme}
+                aria-label="Toggle theme"
+                style={{ padding: '8px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--glass-border-subtle)' }}
+                title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+              >
+                {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+              </button>
 
-                <NavLink to="/investigate" className="btn btn-primary btn-sm">
-                  <Search size={14} /> New Investigation
-                </NavLink>
-              </div>
-            </>
+              <NavLink to="/investigate" className="btn btn-primary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 10px rgba(96,153,102,0.3)' }}>
+                <Search size={14} /> <span className="hide-on-mobile">New Investigation</span>
+              </NavLink>
+            </div>
           )}
         </div>
       </nav>
 
-      {/* Main Content */}
+      {/* Main Content Area */}
       {showSidebar ? (
-        <div className="layout-with-sidebar" style={{ flex: 1 }}>
-          {/* Sidebar */}
-          <aside className="sidebar">
-            <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div className="layout-with-sidebar" style={{ flex: 1, display: 'flex', position: 'relative' }}>
+          {/* Mobile Backdrop Overlay */}
+          {mobileMenuOpen && (
+            <div
+              className="sidebar-backdrop"
+              onClick={() => setMobileMenuOpen(false)}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(0, 0, 0, 0.45)',
+                backdropFilter: 'blur(4px)',
+                zIndex: 40,
+              }}
+            />
+          )}
+
+          {/* Frosted Glass Sidebar */}
+          <aside className={`sidebar glass-sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {sidebarNav.map(({ to, icon: Icon, label }) => (
                 <NavLink
                   key={to}
                   to={to}
                   className={({ isActive }) =>
-                    `flex items-center gap-3 nav-link${isActive ? ' active' : ''}`
+                    `sidebar-link flex items-center gap-3${isActive ? ' active glow-border-accent' : ''}`
                   }
-                  style={{ borderRadius: 'var(--radius)', fontWeight: 500 }}
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: '10px',
+                    fontSize: '13.5px',
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                    transition: 'all 0.18s ease',
+                  }}
                 >
                   <Icon size={18} />
-                  {label}
+                  <span>{label}</span>
                 </NavLink>
               ))}
             </nav>
 
-            <div style={{ borderTop: '1px solid var(--color-border)', marginTop: 'auto', paddingTop: 'var(--space-4)' }}>
-              <div style={{ padding: 'var(--space-3)', background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius)', marginBottom: 'var(--space-3)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--text-xs)', color: 'var(--color-accent)', fontWeight: 600 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-accent)', display: 'inline-block' }} />
+            <div style={{ borderTop: '1px solid var(--glass-border-subtle)', marginTop: 'auto', paddingTop: 'var(--space-4)' }}>
+              <div
+                className="glass-panel-subtle"
+                style={{
+                  padding: 'var(--space-3)',
+                  borderRadius: '12px',
+                  marginBottom: 'var(--space-3)',
+                  border: '1px solid var(--glass-border)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--text-xs)', color: 'var(--color-accent)', fontWeight: 700 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-accent)', display: 'inline-block', boxShadow: '0 0 8px var(--color-accent)' }} />
                   Free & Open Edition
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '3px' }}>
-                  No sign-in required
+                  Passive Reconnaissance Suite
                 </div>
               </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <NavLink to="/docs" className={({ isActive }) => `flex items-center gap-3 nav-link${isActive ? ' active' : ''}`} style={{ fontSize: 'var(--text-sm)' }}>
-                  <BookOpen size={15} /> Docs
+                <NavLink to="/docs" className={({ isActive }) => `sidebar-link-subtle flex items-center gap-3${isActive ? ' active' : ''}`} style={{ fontSize: 'var(--text-xs)' }}>
+                  <BookOpen size={14} /> Documentation
                 </NavLink>
-                <NavLink to="/privacy" className={({ isActive }) => `flex items-center gap-3 nav-link${isActive ? ' active' : ''}`} style={{ fontSize: 'var(--text-sm)' }}>
-                  <Shield size={15} /> Privacy
+                <NavLink to="/privacy" className={({ isActive }) => `sidebar-link-subtle flex items-center gap-3${isActive ? ' active' : ''}`} style={{ fontSize: 'var(--text-xs)' }}>
+                  <Shield size={14} /> Security & Privacy
                 </NavLink>
               </div>
             </div>
           </aside>
 
-          <main className="main-content">
+          <main className="main-content" style={{ flex: 1, minWidth: 0, overflowX: 'hidden' }}>
             <Outlet />
           </main>
         </div>

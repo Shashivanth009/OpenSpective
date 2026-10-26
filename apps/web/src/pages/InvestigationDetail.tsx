@@ -189,98 +189,127 @@ export default function InvestigationDetailPage() {
         // fallback to state findings
       }
 
-      const targetSlug = (investigation.target || 'target').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const safe = (v: any, fallback = ''): string => {
+        if (v === null || v === undefined) return fallback;
+        return String(v);
+      };
+
+      const targetSlug = safe(investigation.target, 'target').replace(/[^a-zA-Z0-9_-]/g, '_');
       const filename = `openspective-${targetSlug}-${investigation.id.slice(0, 8)}.${format === 'stix' ? 'stix21.json' : format}`;
 
       if (format === 'pdf') {
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const pageWidth = 210;
         const pageHeight = 297;
-        const margin = 14;
-        const contentWidth = pageWidth - margin * 2; // 182mm
+        const margin = 12;
+        const contentWidth = pageWidth - margin * 2; // 186mm
+
+        // Brand colors: OpenSpective Dark Obsidian & Emerald
+        const colObsidian = [10, 15, 24]; // #0a0f18
+        const colEmerald = [16, 185, 129]; // #10b981
+        const colSlateText = [71, 85, 105]; // #475569
+        const colDarkText = [15, 23, 42]; // #0f172a
+        const colCardBg = [248, 250, 252]; // #f8fafc
+        const colCardBorder = [226, 232, 240]; // #e2e8f0
 
         const drawPageHeader = (_pageNum: number) => {
-          doc.setFillColor(15, 23, 42); // slate-900
-          doc.rect(0, 0, pageWidth, 28, 'F');
-          
-          doc.setFillColor(16, 185, 129); // emerald-500
-          doc.rect(0, 28, pageWidth, 1.5, 'F');
+          // Top Obsidian Banner
+          doc.setFillColor(colObsidian[0], colObsidian[1], colObsidian[2]);
+          doc.rect(0, 0, pageWidth, 22, 'F');
 
+          // Emerald Accent Underline
+          doc.setFillColor(colEmerald[0], colEmerald[1], colEmerald[2]);
+          doc.rect(0, 22, pageWidth, 1.2, 'F');
+
+          // Logo / Platform Title
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(13);
+          doc.setFontSize(12);
           doc.setTextColor(255, 255, 255);
-          doc.text('OPENSPECTIVE OSINT INTELLIGENCE PLATFORM', margin, 12);
+          doc.text('OPENSPECTIVE OSINT INTELLIGENCE PLATFORM', margin, 10);
 
+          // Subtitle
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8);
+          doc.setFontSize(7.5);
           doc.setTextColor(148, 163, 184);
-          doc.text('PASSIVE RECONNAISSANCE & ATTACK SURFACE DOSSIER', margin, 18);
+          doc.text('PASSIVE CYBER RECONNAISSANCE & THREAT SURFACE DOSSIER', margin, 16);
 
+          // Classification Tag
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(8);
+          doc.setFontSize(7.5);
           doc.setTextColor(52, 211, 153);
-          doc.text('TLP:CLEAR / OPEN INTELLIGENCE', pageWidth - margin, 12, { align: 'right' });
+          doc.text('TLP:CLEAR / OPEN INTELLIGENCE', pageWidth - margin, 10, { align: 'right' });
 
+          // Timestamp
           doc.setFont('helvetica', 'normal');
           doc.setTextColor(148, 163, 184);
-          doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth - margin, 18, { align: 'right' });
+          doc.text(`Generated: ${new Date().toLocaleString()}`, pageWidth - margin, 16, { align: 'right' });
         };
 
         const drawPageFooter = (pageNum: number, totalPages: number) => {
           doc.setDrawColor(203, 213, 225);
           doc.setLineWidth(0.3);
-          doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+          doc.line(margin, pageHeight - 11, pageWidth - margin, pageHeight - 11);
 
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7.5);
+          doc.setFontSize(7);
           doc.setTextColor(100, 116, 139);
-          doc.text('OpenSpective Intelligence Framework — Passive Threat & Footprint Analysis', margin, pageHeight - 7);
-          doc.text(`Page ${pageNum} of ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+          doc.text('OpenSpective Intelligence Framework — Strictly For Authorized Security Research', margin, pageHeight - 6);
+          doc.text(`Page ${pageNum} of ${totalPages}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
         };
 
         drawPageHeader(1);
-        let curY = 36;
+        let curY = 28;
 
-        // Target Overview Box
-        doc.setFillColor(248, 250, 252);
-        doc.roundedRect(margin, curY, contentWidth, 32, 2, 2, 'F');
-        doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(margin, curY, contentWidth, 32, 2, 2, 'S');
+        const checkPageOverflow = (neededHeight: number): boolean => {
+          if (curY + neededHeight > pageHeight - 18) {
+            doc.addPage();
+            drawPageHeader(doc.getNumberOfPages());
+            curY = 28;
+            return true;
+          }
+          return false;
+        };
+
+        // 1. Target Dossier Overview Box
+        doc.setFillColor(colCardBg[0], colCardBg[1], colCardBg[2]);
+        doc.roundedRect(margin, curY, contentWidth, 30, 2, 2, 'F');
+        doc.setDrawColor(colCardBorder[0], colCardBorder[1], colCardBorder[2]);
+        doc.roundedRect(margin, curY, contentWidth, 30, 2, 2, 'S');
 
         doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(colSlateText[0], colSlateText[1], colSlateText[2]);
+        doc.text('TARGET INVESTIGATION SUBJECT', margin + 6, curY + 6.5);
+        doc.text('TELEMETRY & STATUS', margin + 105, curY + 6.5);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(13);
+        doc.setTextColor(colDarkText[0], colDarkText[1], colDarkText[2]);
+        const targetTrunc = safe(investigation.target).length > 34 ? safe(investigation.target).slice(0, 34) + '...' : safe(investigation.target);
+        doc.text(targetTrunc, margin + 6, curY + 15);
+
+        doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
-        doc.setTextColor(100, 116, 139);
-        doc.text('TARGET ENTITY', margin + 6, curY + 7);
-        doc.text('STATUS & TELEMETRY', margin + 95, curY + 7);
+        doc.setTextColor(colEmerald[0], colEmerald[1], colEmerald[2]);
+        doc.text(`Type: ${safe(investigation.target_type).toUpperCase()}`, margin + 6, curY + 21);
+        doc.setTextColor(colSlateText[0], colSlateText[1], colSlateText[2]);
+        doc.text(`Investigation ID: ${safe(investigation.id)}`, margin + 6, curY + 26);
 
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(14);
-        doc.setTextColor(15, 23, 42);
-        const targetTrunc = investigation.target.length > 32 ? investigation.target.slice(0, 32) + '...' : investigation.target;
-        doc.text(targetTrunc, margin + 6, curY + 16);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.5);
-        doc.setTextColor(16, 185, 129);
-        doc.text(`Target Type: ${investigation.target_type.toUpperCase()}`, margin + 6, curY + 23);
-        doc.setTextColor(100, 116, 139);
-        doc.text(`Investigation ID: ${investigation.id}`, margin + 6, curY + 28);
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        const statusColor = investigation.status === 'completed' ? [16, 185, 129] : [59, 130, 246];
+        doc.setFontSize(9.5);
+        const statusColor = investigation.status === 'completed' ? colEmerald : [59, 130, 246];
         doc.setTextColor(statusColor[0], statusColor[1], statusColor[2]);
-        doc.text(`STATUS: ${investigation.status.toUpperCase()}`, margin + 95, curY + 16);
+        doc.text(`STATUS: ${safe(investigation.status).toUpperCase()}`, margin + 105, curY + 15);
 
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.5);
-        doc.setTextColor(100, 116, 139);
-        doc.text(`Engines Dispatched: ${executions.length} OSINT Collectors`, margin + 95, curY + 23);
-        doc.text(`Total Intelligence Findings: ${exportFindings.length}`, margin + 95, curY + 28);
+        doc.setFontSize(8);
+        doc.setTextColor(colSlateText[0], colSlateText[1], colSlateText[2]);
+        doc.text(`OSINT Collectors: ${executions.length} Specialized Engines`, margin + 105, curY + 21);
+        doc.text(`Discovered Intelligence Findings: ${exportFindings.length} Artifacts`, margin + 105, curY + 26);
 
-        curY += 38;
+        curY += 35;
 
-        // Metrics Scorecard Cards
+        // 2. Metrics Scorecard
         const cardWidth = (contentWidth - 9) / 4;
         const criticalCount = exportFindings.filter(f => f.severity === 'critical' || f.severity === 'high').length;
         const mediumCount = exportFindings.filter(f => f.severity === 'medium').length;
@@ -288,141 +317,263 @@ export default function InvestigationDetailPage() {
         const highConfCount = exportFindings.filter(f => f.confidence === 'high').length;
 
         const metrics = [
-          { label: 'CRITICAL / HIGH', val: String(criticalCount), color: [239, 68, 68] },
-          { label: 'MEDIUM ALERTS', val: String(mediumCount), color: [234, 179, 8] },
-          { label: 'LOW / INFO', val: String(lowCount), color: [59, 130, 246] },
-          { label: 'HIGH CONFIDENCE', val: String(highConfCount), color: [16, 185, 129] },
+          { label: 'CRITICAL / HIGH RISKS', val: String(criticalCount), color: [220, 38, 38] },
+          { label: 'MEDIUM ALERTS', val: String(mediumCount), color: [202, 138, 4] },
+          { label: 'LOW / INFORMATIONAL', val: String(lowCount), color: [37, 99, 235] },
+          { label: 'HIGH CONFIDENCE', val: String(highConfCount), color: colEmerald },
         ];
 
         metrics.forEach((m, idx) => {
           const x = margin + idx * (cardWidth + 3);
-          doc.setFillColor(248, 250, 252);
-          doc.roundedRect(x, curY, cardWidth, 18, 1.5, 1.5, 'F');
-          doc.setDrawColor(226, 232, 240);
-          doc.roundedRect(x, curY, cardWidth, 18, 1.5, 1.5, 'S');
+          doc.setFillColor(colCardBg[0], colCardBg[1], colCardBg[2]);
+          doc.roundedRect(x, curY, cardWidth, 16, 1.5, 1.5, 'F');
+          doc.setDrawColor(colCardBorder[0], colCardBorder[1], colCardBorder[2]);
+          doc.roundedRect(x, curY, cardWidth, 16, 1.5, 1.5, 'S');
 
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(6.5);
-          doc.setTextColor(100, 116, 139);
-          doc.text(m.label, x + 4, curY + 6);
+          doc.setTextColor(colSlateText[0], colSlateText[1], colSlateText[2]);
+          doc.text(m.label, x + 4, curY + 5.5);
 
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(12);
+          doc.setFontSize(11);
           doc.setTextColor(m.color[0], m.color[1], m.color[2]);
-          doc.text(m.val, x + 4, curY + 14);
+          doc.text(m.val, x + 4, curY + 13);
         });
 
-        curY += 24;
+        curY += 21;
 
-        // AI Summary if exists
-        if (aiReport?.summary) {
-          doc.setFillColor(240, 253, 244); // emerald-50
-          doc.setDrawColor(187, 247, 208);
-          const aiLines = doc.splitTextToSize(`Executive Synthesis: ${aiReport.summary}`, contentWidth - 10);
-          const boxHeight = Math.min(32, aiLines.length * 4.2 + 8);
-          doc.roundedRect(margin, curY, contentWidth, boxHeight, 1.5, 1.5, 'FD');
+        // 3. AI Executive Threat Synthesis & Vulnerability Posture
+        const aiFullText: string = safe(aiReport?.fullResponse || aiReport?.technical_details || aiReport?.summary);
+        if (aiFullText.trim().length > 0) {
+          checkPageOverflow(30);
 
+          // Section Title
+          doc.setFillColor(colEmerald[0], colEmerald[1], colEmerald[2]);
+          doc.rect(margin, curY, 2.5, 7, 'F');
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(8);
-          doc.setTextColor(21, 128, 61);
-          doc.text('AI EXECUTIVE SYNTHESIS', margin + 5, curY + 6);
+          doc.setFontSize(9.5);
+          doc.setTextColor(colDarkText[0], colDarkText[1], colDarkText[2]);
+          doc.text('EXECUTIVE THREAT SYNTHESIS & VULNERABILITY DOSSIER', margin + 5, curY + 5.5);
+          curY += 10;
 
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7.5);
-          doc.setTextColor(51, 65, 85);
-          doc.text(aiLines.slice(0, 5), margin + 5, curY + 12);
-          curY += boxHeight + 6;
+          // Split into sections by Markdown headings
+          const sections = aiFullText
+            .split(/(?=(?:^|\n)(?:#{1,3}\s+|\d+\.\s+[*#A-Za-z]))/g)
+            .map(s => s.trim())
+            .filter(Boolean);
+
+          const renderSections = sections.length > 0 ? sections : [aiFullText];
+
+          for (const sec of renderSections) {
+            const secLines = sec.split('\n');
+            const secTitle = secLines[0].replace(/^[#*\s\d.]+\s*/, '').replace(/[*_#:]+/g, '').trim();
+            const bodyLines = secLines.slice(1);
+
+            checkPageOverflow(18);
+
+            // Sub-heading
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(8.5);
+            doc.setTextColor(colEmerald[0], colEmerald[1], colEmerald[2]);
+            doc.text(`▸ ${secTitle}`, margin + 2, curY + 4);
+            curY += 6.5;
+
+            // Body text lines with wrapping
+            for (const bLine of bodyLines) {
+              const cleanLine = bLine.trim();
+              if (!cleanLine) continue;
+
+              const isBullet = cleanLine.startsWith('- ') || cleanLine.startsWith('* ');
+              const textContent = cleanLine.replace(/^[-*]\s+/, '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/`(.*?)`/g, '$1');
+              const wrapped = doc.splitTextToSize(isBullet ? `• ${textContent}` : textContent, contentWidth - 8);
+
+              checkPageOverflow(wrapped.length * 3.8 + 2);
+
+              doc.setFont('helvetica', isBullet ? 'normal' : 'normal');
+              doc.setFontSize(7.5);
+              doc.setTextColor(colDarkText[0], colDarkText[1], colDarkText[2]);
+              doc.text(wrapped, margin + 4, curY + 3.5);
+              curY += wrapped.length * 3.8 + 1.2;
+            }
+
+            curY += 3;
+          }
+
+          curY += 4;
         }
 
-        // Section Title: Discovered Findings
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.setTextColor(15, 23, 42);
-        doc.text(`INTELLIGENCE FINDINGS & MULTI-HOP ARTIFACTS (${exportFindings.length})`, margin, curY);
-        curY += 4;
+        // 4. Intelligence Findings Table
+        checkPageOverflow(26);
 
-        // Table Header
+        // Section Title: Discovered Findings
+        doc.setFillColor(colEmerald[0], colEmerald[1], colEmerald[2]);
+        doc.rect(margin, curY, 2.5, 7, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.setTextColor(colDarkText[0], colDarkText[1], colDarkText[2]);
+        doc.text(`DISCOVERED INTELLIGENCE FINDINGS & MULTI-HOP ARTIFACTS (${exportFindings.length})`, margin + 5, curY + 5.5);
+        curY += 10;
+
+        // Table Columns
+        const colW = {
+          sev: 18,
+          cat: 38,
+          val: 80,
+          conf: 18,
+          src: 32,
+        };
+
         const colX = {
           sev: margin + 2,
-          cat: margin + 24,
-          type: margin + 54,
-          val: margin + 84,
-          source: margin + 148,
-          conf: margin + 172,
+          cat: margin + colW.sev + 2,
+          val: margin + colW.sev + colW.cat + 2,
+          conf: margin + colW.sev + colW.cat + colW.val + 2,
+          src: margin + colW.sev + colW.cat + colW.val + colW.conf + 2,
         };
 
         const drawTableHeader = (y: number) => {
-          doc.setFillColor(226, 232, 240);
-          doc.rect(margin, y, contentWidth, 7, 'F');
+          doc.setFillColor(colObsidian[0], colObsidian[1], colObsidian[2]);
+          doc.rect(margin, y, contentWidth, 6.5, 'F');
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(7);
-          doc.setTextColor(51, 65, 85);
-          doc.text('SEVERITY', colX.sev, y + 5);
-          doc.text('CATEGORY', colX.cat, y + 5);
-          doc.text('TYPE', colX.type, y + 5);
-          doc.text('DISCOVERED VALUE', colX.val, y + 5);
-          doc.text('SOURCE', colX.source, y + 5);
-          doc.text('CONF.', colX.conf, y + 5);
+          doc.setFontSize(6.8);
+          doc.setTextColor(255, 255, 255);
+          doc.text('SEVERITY', colX.sev, y + 4.5);
+          doc.text('CATEGORY & TYPE', colX.cat, y + 4.5);
+          doc.text('DISCOVERED VALUE / CLUE', colX.val, y + 4.5);
+          doc.text('CONF.', colX.conf, y + 4.5);
+          doc.text('SOURCE ENGINE', colX.src, y + 4.5);
         };
 
         drawTableHeader(curY);
-        curY += 8;
+        curY += 7.5;
 
-        // Table Rows
+        // Findings Rows
         exportFindings.forEach((f, idx) => {
-          if (curY > pageHeight - 20) {
+          const sevStr = safe(f.severity, 'info').toUpperCase();
+          const catStr = safe(f.category).replace(/_/g, ' ');
+          const typeStr = safe(f.type);
+          const valStr = safe(f.value);
+          const confStr = safe(f.confidence, 'med').toUpperCase();
+          const srcStr = safe(f.source_name, 'OpenSpective');
+
+          // Split value to fit in value column width (76mm)
+          const valLines = doc.splitTextToSize(valStr, colW.val - 4);
+          const catLines = doc.splitTextToSize(`${catStr}\n(${typeStr})`, colW.cat - 4);
+          const maxLines = Math.max(valLines.length, catLines.length, 1);
+          const rowHeight = Math.max(7, maxLines * 3.4 + 3);
+
+          if (curY + rowHeight > pageHeight - 16) {
             doc.addPage();
             drawPageHeader(doc.getNumberOfPages());
-            curY = 36;
+            curY = 28;
             drawTableHeader(curY);
-            curY += 8;
+            curY += 7.5;
           }
 
+          // Zebra striping
           if (idx % 2 === 1) {
-            doc.setFillColor(248, 250, 252);
-            doc.rect(margin, curY - 1, contentWidth, 6.5, 'F');
+            doc.setFillColor(colCardBg[0], colCardBg[1], colCardBg[2]);
+            doc.rect(margin, curY - 1, contentWidth, rowHeight, 'F');
           }
 
-          // Severity badge
+          // Severity
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(6.5);
           if (f.severity === 'critical') doc.setTextColor(220, 38, 38);
           else if (f.severity === 'high') doc.setTextColor(234, 88, 12);
           else if (f.severity === 'medium') doc.setTextColor(202, 138, 4);
-          else doc.setTextColor(71, 85, 105);
-          doc.text((f.severity || 'info').toUpperCase(), colX.sev, curY + 3.5);
+          else doc.setTextColor(37, 99, 235);
+          doc.text(sevStr, colX.sev, curY + 3.5);
 
-          // Category
+          // Category & Type
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(6.5);
-          doc.setTextColor(15, 23, 42);
-          const catStr = f.category.length > 15 ? f.category.slice(0, 15) : f.category;
-          doc.text(catStr, colX.cat, curY + 3.5);
+          doc.setTextColor(colDarkText[0], colDarkText[1], colDarkText[2]);
+          doc.text(catLines, colX.cat, curY + 3.5);
 
-          // Type
-          const typeStr = f.type.length > 15 ? f.type.slice(0, 15) : f.type;
-          doc.text(typeStr, colX.type, curY + 3.5);
-
-          // Value
+          // Discovered Value (wrapped, not truncated!)
           doc.setFont('helvetica', 'bold');
           doc.setTextColor(2, 132, 199);
-          const valStr = f.value.length > 36 ? f.value.slice(0, 35) + '...' : f.value;
-          doc.text(valStr, colX.val, curY + 3.5);
-
-          // Source
-          doc.setFont('helvetica', 'normal');
-          doc.setTextColor(100, 116, 139);
-          const srcStr = (f.source_name || 'OpenSpective').slice(0, 14);
-          doc.text(srcStr, colX.source, curY + 3.5);
+          doc.text(valLines, colX.val, curY + 3.5);
 
           // Confidence
           doc.setFont('helvetica', 'bold');
-          if (f.confidence === 'high') doc.setTextColor(16, 185, 129);
+          if (f.confidence === 'high') doc.setTextColor(colEmerald[0], colEmerald[1], colEmerald[2]);
           else if (f.confidence === 'medium') doc.setTextColor(202, 138, 4);
-          else doc.setTextColor(148, 163, 184);
-          doc.text((f.confidence || 'med').toUpperCase().slice(0, 4), colX.conf, curY + 3.5);
+          else doc.setTextColor(colSlateText[0], colSlateText[1], colSlateText[2]);
+          doc.text(confStr.slice(0, 4), colX.conf, curY + 3.5);
 
-          curY += 6.5;
+          // Source
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(colSlateText[0], colSlateText[1], colSlateText[2]);
+          const srcLines = doc.splitTextToSize(srcStr, colW.src - 2);
+          doc.text(srcLines, colX.src, curY + 3.5);
+
+          curY += rowHeight;
+        });
+
+        // 5. OSINT Engine Telemetry Table
+        checkPageOverflow(26);
+        curY += 4;
+        doc.setFillColor(colEmerald[0], colEmerald[1], colEmerald[2]);
+        doc.rect(margin, curY, 2.5, 7, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.setTextColor(colDarkText[0], colDarkText[1], colDarkText[2]);
+        doc.text(`OSINT COLLECTOR TELEMETRY & ENGINE LOGS (${executions.length})`, margin + 5, curY + 5.5);
+        curY += 10;
+
+        const drawExecHeader = (y: number) => {
+          doc.setFillColor(colObsidian[0], colObsidian[1], colObsidian[2]);
+          doc.rect(margin, y, contentWidth, 6.5, 'F');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.8);
+          doc.setTextColor(255, 255, 255);
+          doc.text('ENGINE / COLLECTOR', margin + 3, y + 4.5);
+          doc.text('STATUS', margin + 70, y + 4.5);
+          doc.text('FINDINGS', margin + 110, y + 4.5);
+          doc.text('EXECUTION TIME', margin + 145, y + 4.5);
+        };
+
+        drawExecHeader(curY);
+        curY += 7.5;
+
+        executions.forEach((e, idx) => {
+          if (curY + 6.5 > pageHeight - 16) {
+            doc.addPage();
+            drawPageHeader(doc.getNumberOfPages());
+            curY = 28;
+            drawExecHeader(curY);
+            curY += 7.5;
+          }
+
+          if (idx % 2 === 1) {
+            doc.setFillColor(colCardBg[0], colCardBg[1], colCardBg[2]);
+            doc.rect(margin, curY - 1, contentWidth, 6, 'F');
+          }
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.5);
+          doc.setTextColor(colDarkText[0], colDarkText[1], colDarkText[2]);
+          doc.text(safe(e.collector_name), margin + 3, curY + 3.5);
+
+          doc.setFont('helvetica', 'bold');
+          const isComp = e.status === 'completed';
+          doc.setTextColor(isComp ? colEmerald[0] : 220, isComp ? colEmerald[1] : 38, isComp ? colEmerald[2] : 38);
+          doc.text(safe(e.status).toUpperCase(), margin + 70, curY + 3.5);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(colDarkText[0], colDarkText[1], colDarkText[2]);
+          doc.text(`${e.findings_count} artifacts`, margin + 110, curY + 3.5);
+
+          doc.setTextColor(colSlateText[0], colSlateText[1], colSlateText[2]);
+          const timingStr = e.completed_at && e.started_at
+            ? `${Math.max(0, new Date(e.completed_at).getTime() - new Date(e.started_at).getTime())} ms`
+            : e.completed_at ? new Date(e.completed_at).toLocaleTimeString() : 'In progress';
+          doc.text(timingStr, margin + 145, curY + 3.5);
+
+          curY += 6;
         });
 
         // Add page footers to all pages
@@ -543,10 +694,10 @@ export default function InvestigationDetailPage() {
         
         const findingsRows = exportFindings.map(f => `
           <tr>
-            <td><span class="badge badge-${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
+            <td><span class="badge badge-${escapeHtml(f.severity || 'info')}">${escapeHtml((f.severity || 'info').toUpperCase())}</span></td>
             <td><strong>${escapeHtml(f.category)}</strong><div class="sub">${escapeHtml(f.type)}</div></td>
             <td class="code-val">${escapeHtml(f.value)}</td>
-            <td><span class="conf conf-${escapeHtml(f.confidence)}">${escapeHtml(f.confidence)}</span></td>
+            <td><span class="conf conf-${escapeHtml(f.confidence || 'medium')}">${escapeHtml((f.confidence || 'medium').toUpperCase())}</span></td>
             <td>${escapeHtml(f.source_name || 'OpenSpective')}</td>
             <td class="notes">${escapeHtml(f.notes || '—')}</td>
           </tr>
@@ -555,12 +706,34 @@ export default function InvestigationDetailPage() {
         const collectorsRows = executions.map(e => `
           <tr>
             <td><strong>${escapeHtml(e.collector_name)}</strong></td>
-            <td><span class="status status-${escapeHtml(e.status)}">${escapeHtml(e.status)}</span></td>
-            <td>${e.findings_count} findings</td>
-            <td>${e.completed_at ? new Date(e.completed_at).toLocaleTimeString() : 'In progress'}</td>
+            <td><span class="status status-${escapeHtml(e.status)}">${escapeHtml(e.status.toUpperCase())}</span></td>
+            <td><strong>${e.findings_count}</strong> artifacts</td>
+            <td>${e.completed_at && e.started_at ? `${Math.max(0, new Date(e.completed_at).getTime() - new Date(e.started_at).getTime())} ms` : (e.completed_at ? new Date(e.completed_at).toLocaleTimeString() : 'In progress')}</td>
             <td class="sub">${escapeHtml(e.error_message || 'Clean execution')}</td>
           </tr>
         `).join('');
+
+        const aiFullText = safe(aiReport?.fullResponse || aiReport?.technical_details || aiReport?.summary);
+        const aiSectionsHtml = aiFullText ? aiFullText
+          .split(/(?=(?:^|\n)(?:#{1,3}\s+|\d+\.\s+[*#A-Za-z]))/g)
+          .map(sec => {
+            const lines = sec.trim().split('\n');
+            const title = lines[0].replace(/^[#*\s\d.]+\s*/, '').replace(/[*_#:]+/g, '').trim();
+            const body = lines.slice(1).map(l => {
+              const clean = l.trim();
+              if (!clean) return '';
+              if (clean.startsWith('- ') || clean.startsWith('* ')) {
+                return `<li>${escapeHtml(clean.replace(/^[-*]\s+/, ''))}</li>`;
+              }
+              return `<p style="margin: 4px 0;">${escapeHtml(clean)}</p>`;
+            }).join('');
+            return `
+              <div class="ai-section">
+                <h4>🛡️ ${escapeHtml(title)}</h4>
+                <div class="ai-body">${body}</div>
+              </div>
+            `;
+          }).join('') : '';
 
         const htmlContent = `<!DOCTYPE html>
 <html lang="en">
@@ -570,54 +743,190 @@ export default function InvestigationDetailPage() {
 <title>OpenSpective Intelligence Dossier — ${escapeHtml(investigation.target)}</title>
 <style>
   :root {
-    --bg: #0f172a;
-    --surface: #1e293b;
-    --border: #334155;
+    --bg: #090d16;
+    --surface: #0f172a;
+    --surface-card: rgba(15, 23, 42, 0.75);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-accent: rgba(16, 185, 129, 0.3);
     --text: #f8fafc;
     --text-muted: #94a3b8;
     --accent: #10b981;
+    --accent-glow: rgba(16, 185, 129, 0.15);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); padding: 2.5rem; line-height: 1.5; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 2rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem; }
-  .brand { display: flex; align-items: center; gap: 12px; }
-  .brand-icon { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #10b981, #3b82f6); display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; color: white; }
-  .title { font-size: 1.75rem; font-weight: 800; }
-  .subtitle { color: var(--text-muted); font-size: 0.9rem; }
-  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
-  .metric-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; }
-  .metric-label { font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 2.5rem;
+    line-height: 1.5;
+    background-image: radial-gradient(circle at 10% 20%, rgba(16, 185, 129, 0.06) 0%, transparent 40%),
+                      radial-gradient(circle at 90% 80%, rgba(37, 99, 235, 0.06) 0%, transparent 40%);
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-bottom: 2rem;
+    border-bottom: 1.5px solid var(--border-accent);
+    margin-bottom: 2rem;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    color: white;
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+  }
+  .title { font-size: 1.85rem; font-weight: 800; letter-spacing: -0.02em; }
+  .subtitle { color: var(--text-muted); font-size: 0.9rem; margin-top: 2px; }
+  .classification-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 2.5rem;
+  }
+  .metric-card {
+    background: var(--surface-card);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.35rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  }
+  .metric-label { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 0.05em; margin-bottom: 6px; }
   .metric-value { font-size: 1.85rem; font-weight: 800; color: var(--text); }
-  .section-title { font-size: 1.25rem; font-weight: 700; margin: 2rem 0 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
-  table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 12px; overflow: hidden; border: 1px solid var(--border); margin-bottom: 2rem; font-size: 0.875rem; }
-  th { background: #162032; text-align: left; padding: 12px 16px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.75rem; }
-  td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .section-title {
+    font-size: 1.35rem;
+    font-weight: 800;
+    margin: 2.5rem 0 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 20px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface-card);
+    backdrop-filter: blur(12px);
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    margin-bottom: 2.5rem;
+    font-size: 0.875rem;
+  }
+  th {
+    background: #0b1120;
+    text-align: left;
+    padding: 14px 18px;
+    color: var(--text-muted);
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 13px 18px; border-bottom: 1px solid var(--border); vertical-align: top; }
   tr:last-child td { border-bottom: none; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
-  .badge-critical { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
-  .badge-high { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); }
-  .badge-medium { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3); }
-  .badge-low { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
-  .badge-info, .badge-none { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.2); }
-  .status { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }
-  .status-completed { color: #34d399; }
-  .status-running { color: #60a5fa; }
-  .status-failed { color: #f87171; }
-  .code-val { font-family: ui-monospace, SFMono-Regular, monospace; word-break: break-all; color: #38bdf8; }
-  .sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
-  .notes { color: var(--text-muted); font-size: 0.8rem; }
-  .conf { font-weight: 600; font-size: 0.8rem; text-transform: capitalize; }
+  tr:hover td { background: rgba(255, 255, 255, 0.02); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; }
+  .badge-critical { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); }
+  .badge-high { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.35); }
+  .badge-medium { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.35); }
+  .badge-low, .badge-info { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.35); }
+  .status { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; }
+  .status-completed { color: #34d399; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); }
+  .status-running { color: #60a5fa; background: rgba(59, 130, 246, 0.15); }
+  .status-failed { color: #f87171; background: rgba(239, 68, 68, 0.15); }
+  .code-val { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; word-break: break-all; color: #38bdf8; font-weight: 600; font-size: 0.85rem; }
+  .sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 3px; }
+  .notes { color: #cbd5e1; font-size: 0.8rem; }
+  .conf { font-weight: 700; font-size: 0.75rem; text-transform: uppercase; }
   .conf-high { color: #34d399; }
   .conf-medium { color: #facc15; }
   .conf-low { color: #94a3b8; }
-  .ai-box { background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; line-height: 1.6; }
-  .footer { text-align: center; color: var(--text-muted); font-size: 0.8rem; margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
+  .ai-container {
+    background: var(--surface-card);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-accent);
+    border-radius: 14px;
+    padding: 1.75rem;
+    margin-bottom: 2.5rem;
+  }
+  .ai-summary-box {
+    background: rgba(16, 185, 129, 0.08);
+    border-left: 4px solid var(--accent);
+    padding: 1.25rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+  }
+  .ai-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 1.25rem;
+  }
+  .ai-section {
+    background: rgba(11, 17, 32, 0.7);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+  }
+  .ai-section h4 {
+    color: var(--accent);
+    font-size: 0.95rem;
+    font-weight: 800;
+    margin-bottom: 0.75rem;
+  }
+  .ai-body {
+    font-size: 0.85rem;
+    color: #cbd5e1;
+    line-height: 1.6;
+  }
+  .ai-body ul {
+    margin-left: 1.25rem;
+    margin-top: 0.5rem;
+  }
+  .footer {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+  }
   @media print {
-    body { background: white; color: black; padding: 1rem; }
-    .metric-card, table, .ai-box { background: white; border: 1px solid #ccc; color: black; }
-    th { background: #f1f5f9; color: black; }
-    td { border-bottom: 1px solid #eee; }
-    .code-val { color: black; }
+    body { background: white !important; color: black !important; padding: 1rem; }
+    .metric-card, table, .ai-container, .ai-section { background: white !important; border: 1px solid #ccc !important; color: black !important; }
+    th { background: #f1f5f9 !important; color: black !important; }
+    td { border-bottom: 1px solid #eee !important; }
+    .code-val { color: #0369a1 !important; }
+    .classification-badge { border-color: #059669; color: #059669; }
   }
 </style>
 </head>
@@ -626,31 +935,33 @@ export default function InvestigationDetailPage() {
     <div class="brand">
       <div class="brand-icon">⚡</div>
       <div>
-        <div class="title">OpenSpective OSINT Dossier</div>
-        <div class="subtitle">Comprehensive Multi-Engine Intelligence & Attack Surface Analysis</div>
+        <div class="title">OpenSpective OSINT Intelligence Dossier</div>
+        <div class="subtitle">Multi-Engine Passive Reconnaissance & Threat Attack Surface Mapped</div>
       </div>
     </div>
     <div style="text-align: right;">
-      <div style="font-size: 0.8rem; color: var(--text-muted);">Generated: ${new Date().toLocaleString()}</div>
-      <div style="font-size: 0.85rem; font-weight: 700; color: var(--accent); margin-top: 4px;">Classification: Open Intelligence</div>
+      <div class="classification-badge">TLP:CLEAR / OPEN INTELLIGENCE</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">Generated: ${new Date().toLocaleString()}</div>
     </div>
   </div>
 
   <div class="metrics-grid">
     <div class="metric-card">
       <div class="metric-label">Target Entity</div>
-      <div class="metric-value" style="font-size: 1.25rem; word-break: break-all;">${escapeHtml(investigation.target)}</div>
-      <div class="sub" style="text-transform: capitalize;">${escapeHtml(investigation.target_type)} Target</div>
+      <div class="metric-value" style="font-size: 1.35rem; word-break: break-all;">${escapeHtml(investigation.target)}</div>
+      <div class="sub" style="text-transform: capitalize; color: var(--accent); font-weight: 700;">${escapeHtml(investigation.target_type)} Target</div>
     </div>
     <div class="metric-card">
-      <div class="metric-label">Status</div>
-      <div class="metric-value" style="color: ${investigation.status === 'completed' ? '#34d399' : '#60a5fa'}; text-transform: uppercase; font-size: 1.5rem;">${escapeHtml(investigation.status)}</div>
-      <div class="sub">${executions.length} Collectors Dispatched</div>
+      <div class="metric-label">Investigation Status</div>
+      <div class="metric-value" style="color: ${investigation.status === 'completed' ? '#34d399' : '#60a5fa'}; text-transform: uppercase; font-size: 1.45rem;">
+        ${escapeHtml(investigation.status)}
+      </div>
+      <div class="sub">${executions.length} Specialized OSINT Engines</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">Discovered Findings</div>
       <div class="metric-value" style="color: #38bdf8;">${exportFindings.length}</div>
-      <div class="sub">${exportFindings.filter(f => f.confidence === 'high').length} High Confidence</div>
+      <div class="sub">${exportFindings.filter(f => f.confidence === 'high').length} High Confidence Artifacts</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">Critical / High Alerts</div>
@@ -661,50 +972,56 @@ export default function InvestigationDetailPage() {
     </div>
   </div>
 
-  ${aiReport?.summary ? `
-    <div class="section-title">🤖 AI Executive Synthesis</div>
-    <div class="ai-box">
-      <strong>Executive Summary:</strong>
-      <p style="margin-top: 8px;">${escapeHtml(aiReport.summary)}</p>
-      ${aiReport.recommendations ? `<div style="margin-top: 12px;"><strong>Key Recommendations:</strong><p style="margin-top: 4px;">${escapeHtml(aiReport.recommendations)}</p></div>` : ''}
+  ${aiFullText ? `
+    <div class="section-title">AI Executive Threat Synthesis & Vulnerability Analysis</div>
+    <div class="ai-container">
+      <div class="ai-summary-box">
+        <strong style="color: var(--accent); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 6px;">
+          Executive Intelligence Briefing:
+        </strong>
+        <p style="font-size: 0.95rem; line-height: 1.6; font-weight: 500;">
+          ${escapeHtml(aiReport?.summary || 'Comprehensive threat intelligence synthesized from observed telemetry.')}
+        </p>
+      </div>
+      ${aiSectionsHtml ? `<div class="ai-grid">${aiSectionsHtml}</div>` : ''}
     </div>
   ` : ''}
 
-  <div class="section-title">📊 Intelligence Findings (${exportFindings.length})</div>
+  <div class="section-title">Discovered Intelligence Findings & Clues (${exportFindings.length})</div>
   <table>
     <thead>
       <tr>
-        <th>Severity</th>
-        <th>Category & Type</th>
-        <th>Discovered Value</th>
-        <th>Confidence</th>
-        <th>Source</th>
-        <th>Notes / Context</th>
+        <th style="width: 100px;">Severity</th>
+        <th style="width: 170px;">Category & Type</th>
+        <th>Discovered Value / Observed Artifact</th>
+        <th style="width: 110px;">Confidence</th>
+        <th style="width: 160px;">Source Engine</th>
+        <th>Context / Notes</th>
       </tr>
     </thead>
     <tbody>
-      ${findingsRows || '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No findings recorded.</td></tr>'}
+      ${findingsRows || '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">No findings recorded.</td></tr>'}
     </tbody>
   </table>
 
-  <div class="section-title">⚙️ OSINT Engines & Execution Telemetry (${executions.length})</div>
+  <div class="section-title">OSINT Collector Engines & Execution Logs (${executions.length})</div>
   <table>
     <thead>
       <tr>
-        <th>Engine / Collector</th>
+        <th>Engine Collector</th>
         <th>Status</th>
-        <th>Findings</th>
-        <th>Execution Timestamp</th>
+        <th>Findings Produced</th>
+        <th>Execution Timing</th>
         <th>Diagnostic Notes</th>
       </tr>
     </thead>
     <tbody>
-      ${collectorsRows || '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No collector records.</td></tr>'}
+      ${collectorsRows || '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">No collector records.</td></tr>'}
     </tbody>
   </table>
 
   <div class="footer">
-    OpenSpective Intelligence Platform — Passive OSINT Reconnaissance Framework — Strictly For Authorized Security Research.
+    OpenSpective Intelligence Framework — Passive OSINT Reconnaissance Platform — Strictly For Authorized Security Research.
   </div>
 </body>
 </html>`;

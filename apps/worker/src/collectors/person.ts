@@ -741,15 +741,16 @@ export const USERNAME_PLATFORMS: PlatformDefinition[] = [
     userKey: 'telegram',
     customCheck: async (resp, text) => {
       if (resp.status === 200) {
-        const hasExtra = text.includes('tgme_page_extra') || text.includes('tgme_page_description');
-        const hasAction = text.includes('tgme_action_button_new') && text.includes('Send Message');
-        const notFound = text.includes('If you have Telegram, you can view and join') || text.includes('User not found');
-        if ((hasExtra || hasAction) && !notFound) {
-          const titleMatch = text.match(/<div class="tgme_page_title"[^>]*>([^<]+)<\/div>/i);
+        const titleMatch = text.match(/<div class="tgme_page_title"[^>]*>([\s\S]*?)<\/div>/i);
+        const rawTitle = (titleMatch && titleMatch[1]) ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+        const notFound = text.includes('User not found') ||
+                         text.includes('If you have Telegram, you can view and join') ||
+                         (!rawTitle && text.includes('If you have <strong>Telegram</strong>, you can contact'));
+        if (rawTitle && rawTitle.length > 0 && !notFound) {
           return {
             found: true,
-            proof: `Verified Public Telegram Channel / User Contact`,
-            name: titleMatch && titleMatch[1] ? titleMatch[1].trim() : null,
+            proof: `Verified Public Telegram Channel / User Contact: "${rawTitle}"`,
+            name: rawTitle,
           };
         }
       }

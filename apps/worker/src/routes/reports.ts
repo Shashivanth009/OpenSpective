@@ -21,9 +21,9 @@ reportsRouter.post('/investigations/:id/reports', async (c) => {
   let body: { format?: string } = {};
   try { body = await c.req.json(); } catch { /* defaults */ }
 
-  const format = (body.format ?? 'json') as 'json' | 'csv' | 'html';
-  if (!['json', 'csv', 'html'].includes(format)) {
-    return c.json({ error: 'Supported formats: json, csv, html.', code: 'VALIDATION_ERROR' }, 400);
+  const format = (body.format ?? 'json') as 'json' | 'csv' | 'html' | 'pdf';
+  if (!['json', 'csv', 'html', 'pdf'].includes(format)) {
+    return c.json({ error: 'Supported formats: json, csv, html, pdf.', code: 'VALIDATION_ERROR' }, 400);
   }
 
   const investigation = await c.env.DB
@@ -91,76 +91,295 @@ reportsRouter.post('/investigations/:id/reports', async (c) => {
     content = [headers.join(','), ...rows].join('\n');
     contentType = 'text/csv';
   } else {
-    // HTML report
+    // HTML / PDF-printable report
+    const escapeHtml = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const findingsHtml = findings.results.map(f => `
       <tr>
-        <td>${f['category']}</td>
-        <td>${f['type']}</td>
-        <td style="word-break:break-all">${String(f['value']).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
-        <td>${f['confidence']}</td>
-        <td>${f['severity']}</td>
-        <td>${f['source_name']}</td>
-        <td>${f['first_seen']}</td>
+        <td><span class="badge badge-${escapeHtml(f['severity'] || 'info')}">${escapeHtml(String(f['severity'] || 'info').toUpperCase())}</span></td>
+        <td><strong>${escapeHtml(f['category'])}</strong><div class="sub">${escapeHtml(f['type'])}</div></td>
+        <td class="code-val">${escapeHtml(f['value'])}</td>
+        <td><span class="conf conf-${escapeHtml(f['confidence'] || 'medium')}">${escapeHtml(String(f['confidence'] || 'medium').toUpperCase())}</span></td>
+        <td>${escapeHtml(f['source_name'] || 'OpenSpective')}</td>
+        <td class="notes">${escapeHtml(f['notes'] || '—')}</td>
       </tr>`).join('');
 
     const collectorsHtml = executions.results.map(e => `
       <tr>
-        <td>${e['collector_name']}</td>
-        <td>${e['status']}</td>
-        <td>${e['findings_count']}</td>
-        <td>${e['completed_at'] ?? 'N/A'}</td>
-        <td>${e['error_message'] ?? ''}</td>
+        <td><strong>${escapeHtml(e['collector_name'])}</strong></td>
+        <td><span class="status status-${escapeHtml(e['status'])}">${escapeHtml(String(e['status']).toUpperCase())}</span></td>
+        <td><strong>${e['findings_count']}</strong> artifacts</td>
+        <td>${e['completed_at'] ?? 'In progress'}</td>
+        <td class="sub">${escapeHtml(e['error_message'] || 'Clean execution')}</td>
       </tr>`).join('');
+
+    const aiText = aiAnalysis ? String(aiAnalysis['technical_details'] || aiAnalysis['summary'] || '') : '';
+    const aiSectionsHtml = aiText ? aiText
+      .split(/(?=(?:^|\n)(?:#{1,3}\s+|\d+\.\s+[*#A-Za-z]))/g)
+      .map(sec => {
+        const lines = sec.trim().split('\n');
+        const title = (lines[0] || '').replace(/^[#*\s\d.]+\s*/, '').replace(/[*_#:]+/g, '').trim();
+        const body = lines.slice(1).map(l => {
+          const clean = l.trim();
+          if (!clean) return '';
+          if (clean.startsWith('- ') || clean.startsWith('* ')) {
+            return `<li>${escapeHtml(clean.replace(/^[-*]\s+/, ''))}</li>`;
+          }
+          return `<p style="margin: 4px 0;">${escapeHtml(clean)}</p>`;
+        }).join('');
+        return `
+          <div class="ai-section">
+            <h4>🛡️ ${escapeHtml(title)}</h4>
+            <div class="ai-body">${body}</div>
+          </div>
+        `;
+      }).join('') : '';
 
     content = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OpenSpective Report — ${String(investigation['target']).replace(/</g, '&lt;')}</title>
+<title>OpenSpective Intelligence Dossier — ${escapeHtml(investigation['target'])}</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 1200px; margin: 0 auto; padding: 2rem; color: #40513B; background: #EDF1D6; }
-  h1 { color: #40513B; } h2 { color: #609966; border-bottom: 2px solid #9DC08B; padding-bottom: .5rem; }
-  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
-  th, td { text-align: left; padding: .5rem; border: 1px solid #9DC08B; font-size: 0.85rem; }
-  th { background: #609966; color: white; }
-  tr:nth-child(even) { background: rgba(157,192,139,0.15); }
-  .meta { background: white; padding: 1rem; border-radius: 8px; margin-bottom: 2rem; border: 1px solid #9DC08B; }
-  .disclaimer { background: #fff3cd; padding: 1rem; border-radius: 8px; border: 1px solid #ffc107; margin: 1rem 0; }
-  .ai { background: white; padding: 1rem; border-radius: 8px; border: 1px solid #9DC08B; margin: 1rem 0; white-space: pre-wrap; }
-  @media print { body { background: white; } }
+  :root {
+    --bg: #090d16;
+    --surface: #0f172a;
+    --surface-card: rgba(15, 23, 42, 0.75);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-accent: rgba(16, 185, 129, 0.3);
+    --text: #f8fafc;
+    --text-muted: #94a3b8;
+    --accent: #10b981;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 2.5rem;
+    line-height: 1.5;
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-bottom: 2rem;
+    border-bottom: 1.5px solid var(--border-accent);
+    margin-bottom: 2rem;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    color: white;
+  }
+  .title { font-size: 1.85rem; font-weight: 800; letter-spacing: -0.02em; }
+  .subtitle { color: var(--text-muted); font-size: 0.9rem; margin-top: 2px; }
+  .classification-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 2.5rem;
+  }
+  .metric-card {
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.35rem;
+  }
+  .metric-label { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; margin-bottom: 6px; }
+  .metric-value { font-size: 1.85rem; font-weight: 800; color: var(--text); }
+  .section-title {
+    font-size: 1.35rem;
+    font-weight: 800;
+    margin: 2.5rem 0 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 20px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface-card);
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    margin-bottom: 2.5rem;
+    font-size: 0.875rem;
+  }
+  th {
+    background: #0b1120;
+    text-align: left;
+    padding: 14px 18px;
+    color: var(--text-muted);
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 13px 18px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; }
+  .badge-critical { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); }
+  .badge-high { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.35); }
+  .badge-medium { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.35); }
+  .badge-low, .badge-info { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.35); }
+  .status { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; }
+  .status-completed { color: #34d399; background: rgba(16, 185, 129, 0.15); }
+  .code-val { font-family: ui-monospace, monospace; word-break: break-all; color: #38bdf8; font-weight: 600; font-size: 0.85rem; }
+  .sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 3px; }
+  .notes { color: #cbd5e1; font-size: 0.8rem; }
+  .conf { font-weight: 700; font-size: 0.75rem; text-transform: uppercase; }
+  .conf-high { color: #34d399; }
+  .conf-medium { color: #facc15; }
+  .conf-low { color: #94a3b8; }
+  .ai-container {
+    background: var(--surface-card);
+    border: 1px solid var(--border-accent);
+    border-radius: 14px;
+    padding: 1.75rem;
+    margin-bottom: 2.5rem;
+  }
+  .ai-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 1.25rem;
+  }
+  .ai-section {
+    background: rgba(11, 17, 32, 0.7);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+  }
+  .ai-section h4 {
+    color: var(--accent);
+    font-size: 0.95rem;
+    font-weight: 800;
+    margin-bottom: 0.75rem;
+  }
+  .ai-body { font-size: 0.85rem; color: #cbd5e1; line-height: 1.6; }
+  .footer {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+  @media print {
+    body { background: white !important; color: black !important; padding: 1rem; }
+    .metric-card, table, .ai-container, .ai-section { background: white !important; border: 1px solid #ccc !important; color: black !important; }
+    th { background: #f1f5f9 !important; color: black !important; }
+    td { border-bottom: 1px solid #eee !important; }
+    .code-val { color: #0369a1 !important; }
+  }
 </style>
 </head>
 <body>
-<h1>🔍 OpenSpective Investigation Report</h1>
-<div class="meta">
-  <strong>Target:</strong> ${String(investigation['target']).replace(/</g, '&lt;')} (${investigation['target_type']})<br>
-  <strong>Status:</strong> ${investigation['status']}<br>
-  <strong>Started:</strong> ${investigation['started_at']}<br>
-  <strong>Completed:</strong> ${investigation['completed_at'] ?? 'N/A'}<br>
-  <strong>Generated:</strong> ${nowIso()}<br>
-  <strong>Methodology:</strong> Passive open-source intelligence collection using publicly available data sources.
-</div>
-<div class="disclaimer">
-  ⚠️ <strong>Disclaimer:</strong> This report contains information from public sources collected at the time of investigation. Findings may have changed. All conclusions should be independently verified. OpenSpective is for authorized research only.
-</div>
+  <div class="header">
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div>
+        <div class="title">OpenSpective OSINT Intelligence Dossier</div>
+        <div class="subtitle">Multi-Engine Passive Reconnaissance & Threat Attack Surface Mapped</div>
+      </div>
+    </div>
+    <div style="text-align: right;">
+      <div class="classification-badge">TLP:CLEAR / OPEN INTELLIGENCE</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">Generated: ${nowIso()}</div>
+    </div>
+  </div>
 
-<h2>Collectors</h2>
-<table><thead><tr><th>Collector</th><th>Status</th><th>Findings</th><th>Completed</th><th>Notes</th></tr></thead>
-<tbody>${collectorsHtml || '<tr><td colspan="5">No collectors ran.</td></tr>'}</tbody></table>
+  <div class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-label">Target Entity</div>
+      <div class="metric-value" style="font-size: 1.35rem; word-break: break-all;">${escapeHtml(investigation['target'])}</div>
+      <div class="sub" style="text-transform: capitalize; color: var(--accent); font-weight: 700;">${escapeHtml(investigation['target_type'])} Target</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Investigation Status</div>
+      <div class="metric-value" style="color: #34d399; text-transform: uppercase; font-size: 1.45rem;">
+        ${escapeHtml(investigation['status'])}
+      </div>
+      <div class="sub">${executions.results.length} Specialized OSINT Engines</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Discovered Findings</div>
+      <div class="metric-value" style="color: #38bdf8;">${findings.results.length}</div>
+      <div class="sub">Verified Telemetry Artifacts</div>
+    </div>
+  </div>
 
-<h2>Findings (${findings.results.length})</h2>
-<table><thead><tr><th>Category</th><th>Type</th><th>Value</th><th>Confidence</th><th>Severity</th><th>Source</th><th>Collected</th></tr></thead>
-<tbody>${findingsHtml || '<tr><td colspan="7">No findings.</td></tr>'}</tbody></table>
+  ${aiSectionsHtml ? `
+    <div class="section-title">AI Executive Threat Synthesis & Vulnerability Analysis</div>
+    <div class="ai-container">
+      <div class="ai-grid">${aiSectionsHtml}</div>
+    </div>
+  ` : ''}
 
-${aiAnalysis ? `<h2>AI Analysis <small>(model: ${aiAnalysis['model']})</small></h2>
-<div class="ai">${String(aiAnalysis['technical_details']).replace(/</g, '&lt;')}</div>
-<p><em>AI analysis is generated from actual findings only. It may contain errors. Verify conclusions independently.</em></p>` : ''}
+  <div class="section-title">Discovered Intelligence Findings (${findings.results.length})</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 100px;">Severity</th>
+        <th style="width: 170px;">Category & Type</th>
+        <th>Discovered Value / Observed Artifact</th>
+        <th style="width: 110px;">Confidence</th>
+        <th style="width: 160px;">Source Engine</th>
+        <th>Context / Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${findingsHtml || '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">No findings recorded.</td></tr>'}
+    </tbody>
+  </table>
 
-<footer style="margin-top:3rem;color:#609966;font-size:0.8rem;">
-  Generated by OpenSpective v0.1 — open-intelligence.dev — For authorized research only.
-</footer>
-</body></html>`;
+  <div class="section-title">OSINT Collector Engines & Execution Logs (${executions.results.length})</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Engine Collector</th>
+        <th>Status</th>
+        <th>Findings Produced</th>
+        <th>Completed At</th>
+        <th>Diagnostic Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${collectorsHtml || '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">No collector records.</td></tr>'}
+    </tbody>
+  </table>
+
+  <div class="footer">
+    OpenSpective Intelligence Framework — Passive OSINT Reconnaissance Platform — Strictly For Authorized Security Research.
+  </div>
+</body>
+</html>`;
     contentType = 'text/html';
   }
 

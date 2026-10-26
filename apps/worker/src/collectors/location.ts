@@ -213,31 +213,13 @@ export async function collectLocationIntelligence(
     });
   }
 
-  // 2. Google Maps review & contributions footprint
+  // 2. Google Maps review & social footprint investigation URLs (provided as metadata queries, not dummy findings)
   let googleMapsReviewUrl: string | undefined;
   let socialCheckInQueryUrl: string | undefined;
 
   if (cleanId) {
     googleMapsReviewUrl = `https://www.google.com/search?q=${encodeURIComponent(`"${cleanId}" "Google Maps" reviews OR ratings OR "Local Guide"`)}`;
     socialCheckInQueryUrl = `https://www.google.com/search?q=${encodeURIComponent(`"${cleanId}" ("checked in at" OR "visited" OR "at the" OR "location")`)}`;
-
-    placeVisits.push({
-      placeName: `Google Maps Reviews & Local Guide Contributions for ${cleanId}`,
-      venueType: 'Public Review History',
-      sourcePlatform: 'google_maps_reviews',
-      evidenceUrl: googleMapsReviewUrl,
-      snippet: `Author review timeline and public establishment ratings on Google Maps Local Guides platform for ${cleanId}.`,
-      confidence: 'medium',
-    });
-
-    placeVisits.push({
-      placeName: `Social Media Geo-Check-ins (Instagram, X/Twitter, Swarm)`,
-      venueType: 'Social Media Location Footprint',
-      sourcePlatform: 'social_media_checkin',
-      evidenceUrl: socialCheckInQueryUrl,
-      snippet: `Cross-platform geotagged posts and public location check-ins matching ${cleanId}.`,
-      confidence: 'medium',
-    });
   }
 
   return {

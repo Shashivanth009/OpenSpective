@@ -444,14 +444,14 @@ investigationsRouter.get('/:id/graph', apiRateLimit, async (c) => {
 function generateExpertOsintSynthesis(target: string, targetType: string, findingsList: any[]) {
   const categories = new Set(findingsList.map(f => f.category));
   const verifiedProfiles = findingsList.filter(f => f.type === 'sherlock_profile' || f.type === 'github_profile' || f.category === 'social_profile' || (f.notes && f.notes.includes('✓')));
-  const locations = findingsList.filter(f => f.category === 'location_intelligence' || f.type === 'place_visit');
+  const locations = findingsList.filter(f => f.category === 'location_intelligence' || f.type === 'geocoded_location' || f.type === 'place_visit');
   const criticals = findingsList.filter(f => f.severity === 'critical' || f.severity === 'high');
   const mediums = findingsList.filter(f => f.severity === 'medium');
   const emails = findingsList.filter(f => f.type === 'git_author_email' || (f.type && f.type.includes('email')) || f.category === 'identity_attribution');
   const dnsRecords = findingsList.filter(f => f.category === 'dns');
   const subdomains = findingsList.filter(f => f.category === 'certificate' || f.type === 'subdomain');
   const openPorts = findingsList.filter(f => f.type === 'passive_open_ports' || f.type === 'open_port');
-  const cves = findingsList.filter(f => f.type && f.type.includes('cve'));
+  const cves = findingsList.filter(f => f.type && (f.type.includes('cve') || f.type.includes('vuln')));
   const breaches = findingsList.filter(f => f.category === 'breach' || f.type === 'breach_record');
   const techStack = findingsList.filter(f => f.category === 'technology');
   const securityScores = findingsList.filter(f => f.type === 'dns_security_score' || f.type === 'security_hygiene_score');
@@ -459,22 +459,84 @@ function generateExpertOsintSynthesis(target: string, targetType: string, findin
 
   // Compute calculated risk level based on actual findings
   let riskLevel = 'LOW';
-  if (criticals.length > 0 || breaches.length > 0 || cves.length > 0) riskLevel = 'CRITICAL';
-  else if (mediums.length >= 2 || emails.length > 0) riskLevel = 'HIGH';
-  else if (openPorts.length > 0 || verifiedProfiles.length > 2) riskLevel = 'MODERATE';
+  let threatScore = 18;
+  if (criticals.length > 0 || breaches.length > 0 || cves.length > 0) {
+    riskLevel = 'CRITICAL';
+    threatScore = Math.min(96, 75 + criticals.length * 6 + breaches.length * 4);
+  } else if (mediums.length >= 2 || emails.length > 0) {
+    riskLevel = 'HIGH';
+    threatScore = Math.min(74, 55 + mediums.length * 4 + emails.length * 3);
+  } else if (openPorts.length > 0 || verifiedProfiles.length > 2) {
+    riskLevel = 'MODERATE';
+    threatScore = Math.min(54, 35 + openPorts.length * 5);
+  }
 
-  const summary = `OpenSpective AI Reconnaissance Synthesis for '${target}' (${targetType.toUpperCase()}): Overall threat posture assessed as [${riskLevel} RISK]. Identified ${findingsList.length} verified intelligence artifacts across ${categories.size} disciplines, including ${subdomains.length} discovered subdomains/hosts, ${openPorts.length} passive open services, ${emails.length} exposed email attributes, and ${breaches.length} historical breach correlations.`;
+  const summary = `OpenSpective AI Intelligence Synthesis for '${target}' (${targetType.toUpperCase()}): Overall threat posture assessed as [${riskLevel} RISK] (Threat Score: ${threatScore}/100). Analyzed ${findingsList.length} verified intelligence artifacts across ${categories.size} telemetry categories. Identified ${emails.length} exposed identity/email vectors, ${subdomains.length} network attack surface hostnames, ${openPorts.length} passive open service ports, and ${breaches.length} historical compromise records.`;
+
+  // Specific misconfiguration & vulnerability detections
+  const misconfigs: string[] = [];
+  if (emails.length > 0) {
+    misconfigs.push(`**Exposed Developer Email in Public Commits**: Email \`${emails[0]?.value}\` is publicly readable in git commit author metadata. This enables spear-phishing, credential stuffing, and social engineering attacks.`);
+  }
+  if (dnsRecords.length > 0) {
+    const hasDmarc = dnsRecords.some(d => String(d.value).includes('v=DMARC1'));
+    const hasSpf = dnsRecords.some(d => String(d.value).includes('v=spf1'));
+    if (!hasDmarc) {
+      misconfigs.push(`**Missing or Incomplete DMARC Policy**: No strict DMARC rejection policy (\`p=reject\`) detected in authoritative DNS TXT records. Adversaries can forge emails impersonating this domain without receiving server rejections.`);
+    }
+    if (!hasSpf) {
+      misconfigs.push(`**Missing SPF Anti-Spoofing Record**: SPF TXT record is absent or permissive, allowing unauthorized mail transfer agents (MTAs) to send mail on behalf of the domain.`);
+    }
+  }
+  if (openPorts.length > 0) {
+    misconfigs.push(`**Publicly Reachable Service Ports**: Discovered open network services (${openPorts.map(p => `\`${p.value}\``).join(', ')}). Exposing raw listening ports without zero-trust ingress tunnels increases external attack surface.`);
+  }
+  if (subdomains.length > 3) {
+    misconfigs.push(`**Subdomain Proliferation & Shadow IT**: Discovered ${subdomains.length} hostnames. Unmonitored staging or development subdomains (e.g. dev, test, admin) frequently suffer from dangling CNAME subdomain takeover vulnerabilities.`);
+  }
+  if (misconfigs.length === 0) {
+    misconfigs.push(`No critical security misconfigurations flagged in passive public telemetry.`);
+  }
+
+  // Vulnerability & zero-day exposure analysis
+  const vulnPoints: string[] = [];
+  if (breaches.length > 0) {
+    vulnPoints.push(`**Historical Credential Compromises**: Target is correlated with ${breaches.length} known public data breach records (${breaches.slice(0, 3).map(b => b.value).join(', ')}). Risk of password reuse attacks and credential stuffing across corporate portals.`);
+  }
+  if (cves.length > 0) {
+    vulnPoints.push(`**Unpatched Known Vulnerabilities (CVEs)**: Detected CVE signatures (${cves.map(c => `\`${c.value}\``).join(', ')}). Immediate patch deployment required to prevent automated exploitation.`);
+  } else if (techStack.length > 0) {
+    vulnPoints.push(`**Software Supply Chain & Component Fingerprinting**: Running software components (${techStack.slice(0, 5).map(t => `\`${t.value}\``).join(', ')}). Outdated minor versions pose exposure to published web application vulnerabilities (RCE, XSS, SSRF).`);
+  }
+  if (openPorts.some(p => String(p.value).includes('22') || String(p.value).includes('3389') || String(p.value).includes('445') || String(p.value).includes('6379') || String(p.value).includes('9200'))) {
+    vulnPoints.push(`**Critical Administrative Ingress Exposure**: High-risk ports (SSH/RDP/SMB/Database/Redis) detected in external internet scan databases. Risk of brute-force dictionary attacks, ransomware lateral movement, and unauthenticated RCE.`);
+  }
+  if (vulnPoints.length === 0) {
+    vulnPoints.push(`No active unpatched CVE signatures flagged in passive perimeter scans.`);
+  }
+
+  // Exact step-by-step remediation fixes
+  const remediationSteps: string[] = [
+    `**Enforce Strict Email Security Policies (DMARC/SPF/DKIM)**:\n   Publish a strict DMARC TXT record in your DNS zone:\n   \`v=DMARC1; p=reject; sp=reject; pct=100; rua=mailto:dmarc-reports@${target.includes('@') ? target.split('@')[1] : target}; aspf=s;\`\n   And configure SPF to reject unauthorized senders:\n   \`v=spf1 mx -all\``,
+    emails.length > 0
+      ? `**Sanitize Git Commit Author Headers & Scrub Public History**:\n   Configure GitHub/GitLab to use private noreply email addresses (\`ID+username@users.noreply.github.com\`).\n   Use \`git-filter-repo\` to rewrite historical commits exposing developer addresses:\n   \`git filter-repo --email-callback "return email if b'noreply' in email else b'security@target.com'"`
+      : `**Implement Continuous Certificate Transparency Monitoring**:\n   Enable automated webhook notifications on crt.sh and Cloudflare to receive real-time alerts whenever new SSL/TLS certificates are issued for your domain namespace.`,
+    openPorts.length > 0
+      ? `**Zero Trust Network Isolation & Access Gateways**:\n   Close direct internet ingress on port ${openPorts[0]?.value}. Place administrative services behind Cloudflare Zero Trust Tunnels (cloudflared), Tailscale, or AWS Security Group ACLs restricted by IP whitelist.`
+      : `**Regular Credential Audits & FIDO2 Security Keys**:\n   Enforce hardware-backed Multi-Factor Authentication (WebAuthn/FIDO2) across all corporate accounts and developer consoles to eliminate credential stuffing risk.`,
+    `**Attack Surface Hardening & Subdomain Hygiene**:\n   Audit all DNS CNAME and NS records for dangling pointers pointing to decommissioned GitHub Pages, AWS S3 buckets, or Heroku apps to prevent subdomain takeover.`,
+  ];
 
   const sections: string[] = [
-    `### 1. Executive Intelligence Summary\n${summary}`,
-    `### 2. Network & Attack Surface Footprint\n` +
-      `- **Primary Entity**: \`${target}\` (Classified as ${targetType})\n` +
-      `- **DNS Architecture**: ${dnsRecords.length > 0 ? `${dnsRecords.length} records mapped (A, MX, TXT, NS, SOA)` : 'Standard public records'}\n` +
+    `### 1. Executive Intelligence Summary & Threat Posture\n${summary}`,
+    `### 2. Discovered Network & Asset Footprint\n` +
+      `- **Primary Target Entity**: \`${target}\` (Classified as ${targetType.toUpperCase()})\n` +
+      `- **Authoritative DNS Architecture**: ${dnsRecords.length > 0 ? `${dnsRecords.length} records mapped (A, AAAA, MX, TXT, NS, SOA)` : 'Standard public records'}\n` +
       `- **Discovered Subdomains & Hostnames**: ${subdomains.length > 0 ? subdomains.slice(0, 10).map(s => `\`${s.value}\``).join(', ') : 'Root domain only'}\n` +
       `- **Passive Open Ports & Services**: ${openPorts.length > 0 ? openPorts.map(p => `\`${p.value}\``).join(', ') : 'No high-risk exposed management ports discovered'}\n` +
-      `- **Web & Infrastructure Technologies**: ${techStack.length > 0 ? techStack.slice(0, 8).map(t => `${t.value}`).join(' | ') : 'Default web stack'}`,
+      `- **Identified Technologies & CMS**: ${techStack.length > 0 ? techStack.slice(0, 8).map(t => `\`${t.value}\``).join(' | ') : 'Default web stack'}`,
     `### 3. Identity, People & Attribution Analysis\n` +
-      `- **Verified Public Profiles & Accounts**: ${verifiedProfiles.length > 0 ? verifiedProfiles.slice(0, 8).map(p => `${p.value} (${p.source_name || 'OSINT'})`).join(', ') : 'No high-confidence social or code author identities matched'}\n` +
+      `- **Verified Public Accounts**: ${verifiedProfiles.length > 0 ? verifiedProfiles.slice(0, 8).map(p => `${p.value} (${p.source_name || 'OSINT'})`).join(', ') : 'No verified social or code author identities matched'}\n` +
       `- **Identified Email Addresses**: ${emails.length > 0 ? emails.slice(0, 6).map(e => `\`${e.value}\``).join(', ') : 'None publicly exposed in commit logs or registries'}\n` +
       (cryptoWallets.length > 0 ? `- **Cryptographic Addresses**: ${cryptoWallets.map(w => `\`${w.value}\``).join(', ')}\n` : '') +
       `- **Historical Compromises & Breaches**: ${breaches.length > 0 ? `⚠️ ${breaches.length} breach records correlated (${breaches.slice(0, 4).map(b => b.value).join(', ')})` : 'Zero known breached records matched in public dumps'}`,
@@ -482,35 +544,33 @@ function generateExpertOsintSynthesis(target: string, targetType: string, findin
 
   if (locations.length > 0) {
     sections.push(
-      `### 4. Spatial & Geolocation Footprint\n` +
-      `- Identified **${locations.length}** geographic locations and check-in traces.\n` +
+      `### 4. Verified Spatial & Geolocation Footprint\n` +
+      `- Identified **${locations.length}** verified geographic locations and coordinate traces.\n` +
       locations.slice(0, 5).map(l => `- 📍 **${l.value}**${l.notes ? ` — ${l.notes}` : ''}`).join('\n')
     );
   }
 
   sections.push(
-    `### 5. Threat Vectors & Hygiene Assessment\n` +
-    `- **Risk Rating**: **${riskLevel}** (${criticals.length} Critical/High findings, ${mediums.length} Medium findings)\n` +
-    (securityScores.length > 0 ? `- **Security Posture Score**: ${securityScores.map(s => `${s.value}`).join('; ')}\n` : '') +
-    (cves.length > 0 ? `- **Known Vulnerabilities**: ${cves.map(c => `\`${c.value}\``).join(', ')}\n` : '- **Vulnerability Status**: No unpatched CVE signatures flagged in passive banners.\n')
+    `### 5. Security Misconfigurations & Threat Vectors\n` +
+    misconfigs.map(m => `- ${m}`).join('\n')
   );
 
-  const recommendations = [
-    emails.length > 0 ? `Sanitize public commit author headers and replace exposed developer emails (\`${emails[0]?.value}\`) with privacy-protected noreply addresses.` : `Enforce strict SPF, DKIM, and DMARC rejecting policies (\`p=reject\`) across all organizational domains.`,
-    openPorts.length > 0 ? `Restrict ingress access to exposed services (\`${openPorts[0]?.value}\`) using Cloudflare Access, Zero Trust Tunnels, or VPN ACLs.` : `Implement automated Certificate Transparency log monitoring to detect rogue or shadow subdomains immediately.`,
-    locations.length > 0 ? `Review location-sharing settings, Google Maps Local Guide contributions, and public venue check-in privacy.` : `Conduct periodic credential audits to ensure organizational credentials have not leaked into third-party breach paste dumps.`,
-  ];
+  sections.push(
+    `### 6. Vulnerabilities, CVEs & Zero-Day Threat Exposure\n` +
+    vulnPoints.map(v => `- ${v}`).join('\n')
+  );
 
   sections.push(
-    `### 6. Actionable Defensive Recommendations\n` +
-    recommendations.map((r, i) => `${i + 1}. ${r}`).join('\n')
+    `### 7. Actionable Step-by-Step Remediation Blueprints (Exact Fixes)\n` +
+    remediationSteps.map((r, i) => `${i + 1}. ${r}`).join('\n\n')
   );
 
   return {
     summary,
     fullResponse: sections.join('\n\n'),
-    recommendations,
+    recommendations: remediationSteps,
     riskLevel,
+    threatScore,
   };
 }
 
@@ -554,24 +614,27 @@ investigationsRouter.post('/:id/analyze', async (c) => {
         `[${f['category']}/${f['type']}] ${f['value']}${f['notes'] ? ` (${f['notes']})` : ''} — source: ${f['source_name']}, severity: ${f['severity']}`
       ).slice(0, 60).join('\n');
 
-      const prompt = `You are a Tier-3 Cyber Threat Intelligence & OSINT Analyst.
+      const prompt = `You are a Principal Threat Intelligence Analyst & Offensive Security Consultant.
 Target: ${targetName} (${targetType})
-Collected Evidence:
+Collected OSINT Artifacts:
 ${evidenceSummary || 'No evidence collected.'}
 
-Draft an executive intelligence synthesis:
-1. Executive Risk Level (Critical / High / Moderate / Low) with brief justification.
-2. Grounded Analysis of discovered infrastructure, domains, open ports, identity clues, and exposure items.
-3. 3 specific technical defensive recommendations.
-Do not hallucinate facts not present in the evidence.`;
+Draft a comprehensive, highly actionable intelligence dossier covering:
+1. Executive Risk Posture (CRITICAL, HIGH, MODERATE, or LOW) with quantitative justification.
+2. Asset & Attack Surface Inventory (DNS records, subdomains, open ports, identity clues).
+3. Security Misconfigurations (SPF/DKIM/DMARC email spoofing risks, exposed commit emails, open services).
+4. Vulnerabilities, Outdated Software & Zero-Day Threat Exposure (CVEs, credential stuffing from breaches, attack vectors).
+5. Actionable Step-by-Step Remediation Blueprints with exact configuration commands, DNS TXT syntax, and mitigation controls.
+
+Ground all analysis strictly in the verified findings. Do not invent unobserved facts.`;
 
       const aiResponse = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
         prompt,
-        max_tokens: 900,
+        max_tokens: 1200,
       });
 
       const rawAiText = (aiResponse as any)?.response ?? (aiResponse as any)?.result?.response ?? '';
-      if (rawAiText && rawAiText.trim().length > 60) {
+      if (rawAiText && rawAiText.trim().length > 100) {
         responseText = rawAiText.trim();
         modelName = '@cf/meta/llama-3.1-8b-instruct';
         const lines = responseText.split('\n').filter(l => l.trim().length > 0);

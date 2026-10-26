@@ -334,16 +334,35 @@ investigationsRouter.get('/:id/graph', apiRateLimit, async (c) => {
 
   if (!investigation) return c.json({ error: 'Not found.', code: 'NOT_FOUND' }, 404);
 
-  const relationships = await c.env.DB
-    .prepare(`SELECT * FROM relationships WHERE investigation_id = ? LIMIT 500`)
-    .bind(id)
-    .all();
+  const [relationships, findingsRes] = await Promise.all([
+    c.env.DB
+      .prepare(`SELECT * FROM relationships WHERE investigation_id = ? LIMIT 500`)
+      .bind(id)
+      .all(),
+    c.env.DB
+      .prepare(`SELECT type, category, value, severity, source_name, notes, source_url FROM findings WHERE investigation_id = ?`)
+      .bind(id)
+      .all(),
+  ]);
+
+  const findingsList = (findingsRes?.results || []) as any[];
+  const findingMap = new Map<string, any[]>();
+  for (const f of findingsList) {
+    const val = String(f['value'] || '').trim().toLowerCase();
+    if (!val) continue;
+    if (!findingMap.has(val)) findingMap.set(val, []);
+    findingMap.get(val)!.push(f);
+  }
 
   const nodeMap = new Map<string, GraphNode>();
   const edges: GraphEdge[] = [];
 
   // Build nodes from relationships
   for (const rel of relationships.results) {
+    // Sanity filter: skip malformed domain entities that are actually emails
+    if (rel['from_entity_type'] === 'domain' && String(rel['from_value']).includes('@')) continue;
+    if (rel['to_entity_type'] === 'domain' && String(rel['to_value']).includes('@')) continue;
+
     const fromKey = `${rel['from_entity_type']}:${rel['from_value']}`;
     const toKey = `${rel['to_entity_type']}:${rel['to_value']}`;
 
@@ -378,7 +397,7 @@ investigationsRouter.get('/:id/graph', apiRateLimit, async (c) => {
     });
   }
 
-  // Add root node if no relationships yet
+  // Ensure root target node is always present and marked as isRoot
   const rootKey = `${investigation['target_type']}:${investigation['target']}`;
   if (!nodeMap.has(rootKey)) {
     nodeMap.set(rootKey, {
@@ -388,6 +407,27 @@ investigationsRouter.get('/:id/graph', apiRateLimit, async (c) => {
       label: investigation['target'] as string,
       properties: { isRoot: true },
     });
+  } else {
+    const rootNode = nodeMap.get(rootKey)!;
+    rootNode.properties = { ...rootNode.properties, isRoot: true };
+  }
+
+  // Enrich each node with telemetry findings & provenance
+  for (const [key, node] of nodeMap.entries()) {
+    const valKey = String(node.value || '').trim().toLowerCase();
+    const matched = findingMap.get(valKey) || [];
+    const sourceNames = [...new Set(matched.map(m => m.source_name).filter(Boolean))];
+    const hasCrit = matched.some(m => m.severity === 'critical');
+    const hasHigh = matched.some(m => m.severity === 'high');
+
+    node.properties = {
+      ...node.properties,
+      findingsCount: matched.length,
+      sourceNames,
+      severity: hasCrit ? 'critical' : hasHigh ? 'high' : 'low',
+      sampleNotes: matched[0]?.notes || null,
+      sampleCategory: matched[0]?.category || null,
+    };
   }
 
   const graph: InvestigationGraph = {

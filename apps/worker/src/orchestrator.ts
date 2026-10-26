@@ -2231,7 +2231,14 @@ async function runMultiHopOsintCorrelation(ctx: OrchestratorContext): Promise<vo
       // 2. IP addresses -> Resolves to / Hosted by / Ports
       if (f.type === 'dns_a' || f.type === 'dns_aaaa' || f.category === 'ipinfo') {
         if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(val)) {
-          addRel('domain', 'ip', ctx.target, val, 'resolves_to', 'high', f.source_url);
+          if (ctx.targetType === 'domain') {
+            addRel('domain', 'ip', ctx.target, val, 'resolves_to', 'high', f.source_url);
+          } else if (ctx.target.includes('@')) {
+            const domainPart = ctx.target.split('@')[1];
+            if (domainPart) {
+              addRel('domain', 'ip', domainPart, val, 'resolves_to', 'high', f.source_url);
+            }
+          }
           if (f.raw_data) {
             try {
               const raw = typeof f.raw_data === 'string' ? JSON.parse(f.raw_data) : f.raw_data;

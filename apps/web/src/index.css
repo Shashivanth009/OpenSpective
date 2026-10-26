@@ -1317,3 +1317,9 @@ pre {
   }
 }
 
+[data-theme="dark"] .graph-hover-card {
+  background: rgba(18, 24, 20, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(16, 185, 129, 0.18);
+}
+

@@ -163,15 +163,17 @@ export default function InvestigationDetailPage() {
   const triggerDownload = (blob: Blob, filename: string) => {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
+    a.style.display = 'none';
     a.href = url;
     a.download = filename;
-    a.target = '_blank';
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
-      a.remove();
+      if (document.body.contains(a)) {
+        document.body.removeChild(a);
+      }
       window.URL.revokeObjectURL(url);
-    }, 4000);
+    }, 60000);
   };
 
   const handleExport = async (format: 'json' | 'csv' | 'stix' | 'html' | 'pdf') => {
@@ -586,12 +588,9 @@ export default function InvestigationDetailPage() {
           drawPageFooter(i, totalPages);
         }
 
-        try {
-          doc.save(filename);
-        } catch {
-          const pdfBlob = new Blob([doc.output('arraybuffer')], { type: 'application/pdf' });
-          triggerDownload(pdfBlob, filename);
-        }
+        // Save PDF with proper MIME and clean filename
+        const pdfBlob = doc.output('blob');
+        triggerDownload(pdfBlob, filename);
       } else if (format === 'json') {
         const reportData = {
           meta: {

@@ -134,54 +134,46 @@ export default function Layout({ minimal, showSidebar }: LayoutProps) {
 
           {/* Frosted Glass Sidebar */}
           <aside className={`sidebar glass-sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
-            <nav style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {sidebarNav.map(({ to, icon: Icon, label }) => (
                 <NavLink
                   key={to}
                   to={to}
                   className={({ isActive }) =>
-                    `sidebar-link flex items-center gap-3${isActive ? ' active glow-border-accent' : ''}`
+                    `sidebar-link flex items-center gap-2${isActive ? ' active glow-border-accent' : ''}`
                   }
-                  style={{
-                    padding: '10px 14px',
-                    borderRadius: '10px',
-                    fontSize: '13.5px',
-                    fontWeight: 600,
-                    textDecoration: 'none',
-                    transition: 'all 0.18s ease',
-                  }}
                 >
-                  <Icon size={18} />
+                  <Icon size={16} />
                   <span>{label}</span>
                 </NavLink>
               ))}
             </nav>
 
-            <div style={{ borderTop: '1px solid var(--glass-border-subtle)', marginTop: 'auto', paddingTop: 'var(--space-4)' }}>
+            <div style={{ borderTop: '1px solid var(--glass-border-subtle)', marginTop: 'auto', paddingTop: '12px' }}>
               <div
                 className="glass-panel-subtle"
                 style={{
-                  padding: 'var(--space-3)',
-                  borderRadius: '12px',
-                  marginBottom: 'var(--space-3)',
+                  padding: '8px 10px',
+                  borderRadius: '10px',
+                  marginBottom: '10px',
                   border: '1px solid var(--glass-border)',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--text-xs)', color: 'var(--color-accent)', fontWeight: 700 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-accent)', display: 'inline-block', boxShadow: '0 0 8px var(--color-accent)' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--color-accent)', fontWeight: 700 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--color-accent)', display: 'inline-block', boxShadow: '0 0 8px var(--color-accent)' }} />
                   Free & Open Edition
                 </div>
-                <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '3px' }}>
-                  Passive Reconnaissance Suite
+                <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                  Passive OSINT Suite
                 </div>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <NavLink to="/docs" className={({ isActive }) => `sidebar-link-subtle flex items-center gap-3${isActive ? ' active' : ''}`} style={{ fontSize: 'var(--text-xs)' }}>
-                  <BookOpen size={14} /> Documentation
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <NavLink to="/docs" className={({ isActive }) => `sidebar-link-subtle flex items-center gap-2${isActive ? ' active' : ''}`}>
+                  <BookOpen size={13} /> Documentation
                 </NavLink>
-                <NavLink to="/privacy" className={({ isActive }) => `sidebar-link-subtle flex items-center gap-3${isActive ? ' active' : ''}`} style={{ fontSize: 'var(--text-xs)' }}>
-                  <Shield size={14} /> Security & Privacy
+                <NavLink to="/privacy" className={({ isActive }) => `sidebar-link-subtle flex items-center gap-2${isActive ? ' active' : ''}`}>
+                  <Shield size={13} /> Security & Privacy
                 </NavLink>
               </div>
             </div>

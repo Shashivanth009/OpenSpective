@@ -1964,16 +1964,16 @@ export default function InvestigationDetailPage() {
                     No findings matched the selected criteria.
                   </div>
                 ) : (
-                  <div style={{ overflowX: 'auto' }}>
-                    <table className="table" style={{ width: '100%' }}>
+                  <div style={{ overflowX: 'auto', width: '100%' }}>
+                    <table className="table" style={{ width: '100%', tableLayout: 'fixed' }}>
                       <thead>
                         <tr>
-                          <th style={{ width: '150px' }}>Category & Type</th>
-                          <th>Intelligence Clue / Discovered Value</th>
-                          <th style={{ width: '100px' }}>Severity</th>
-                          <th style={{ width: '90px' }}>Confidence</th>
-                          <th style={{ width: '140px' }}>Source Engine</th>
-                          <th style={{ width: '220px', textAlign: 'right' }}>Actions</th>
+                          <th style={{ width: '15%', minWidth: '120px' }}>Category & Type</th>
+                          <th style={{ width: '42%' }}>Intelligence Clue / Discovered Value</th>
+                          <th style={{ width: '80px', textAlign: 'center' }}>Severity</th>
+                          <th style={{ width: '80px', textAlign: 'center' }}>Confidence</th>
+                          <th style={{ width: '15%', minWidth: '110px' }}>Source Engine</th>
+                          <th style={{ width: '165px', textAlign: 'right', paddingRight: 'var(--space-4)' }}>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1988,47 +1988,47 @@ export default function InvestigationDetailPage() {
                           return (
                             <>
                               <tr key={f.id} style={{ background: isExpanded ? 'var(--color-surface-elevated)' : undefined }}>
-                                <td>
+                                <td style={{ verticalAlign: 'middle' }}>
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                                     <span className="badge badge-neutral" style={{ textTransform: 'capitalize', width: 'fit-content' }}>
                                       {f.category.replace(/_/g, ' ')}
                                     </span>
-                                    <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                                    <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.type}>
                                       {f.type}
                                     </span>
                                   </div>
                                 </td>
-                                <td style={{ wordBreak: 'break-all' }}>
+                                <td style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', verticalAlign: 'middle' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', marginBottom: '2px' }}>
-                                    <strong style={{ fontSize: '13px', color: 'var(--color-dark)' }}>{f.value}</strong>
+                                    <strong style={{ fontSize: '13px', color: 'var(--color-dark)', lineHeight: 1.4 }}>{f.value}</strong>
                                     {isVerified && (
-                                      <span className="badge badge-success" style={{ fontSize: '10px', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                        <Check size={10} /> Verified Clue
+                                      <span className="badge badge-success" style={{ fontSize: '10px', padding: '1px 7px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                        <Check size={10} /> Verified
                                       </span>
                                     )}
                                   </div>
                                   {f.notes && (
-                                    <div style={{ fontSize: '11.5px', color: isVerified ? 'var(--color-accent)' : 'var(--color-text-secondary)', lineHeight: 1.4 }}>
+                                    <div style={{ fontSize: '11.5px', color: isVerified ? 'var(--color-accent)' : 'var(--color-text-secondary)', lineHeight: 1.4, marginTop: '2px' }}>
                                       {f.notes}
                                     </div>
                                   )}
                                 </td>
-                                <td>{getSeverityBadge(f.severity)}</td>
-                                <td>
+                                <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>{getSeverityBadge(f.severity)}</td>
+                                <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
                                   <span style={{ fontSize: '11px', textTransform: 'capitalize', fontWeight: 600 }}>
                                     {f.confidence}
                                   </span>
                                 </td>
-                                <td style={{ fontSize: '11.5px', color: 'var(--color-text-secondary)' }}>
+                                <td style={{ fontSize: '11.5px', color: 'var(--color-text-secondary)', verticalAlign: 'middle', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.source_name}>
                                   {f.source_name}
                                 </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px', flexWrap: 'wrap' }}>
+                                <td style={{ textAlign: 'right', verticalAlign: 'middle', paddingRight: 'var(--space-4)' }}>
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px', whiteSpace: 'nowrap' }}>
                                     <button
                                       type="button"
                                       onClick={() => setSelectedFindingModal(f)}
                                       className="btn btn-secondary btn-xs"
-                                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', padding: '3px 8px', fontSize: '11px' }}
                                       title="View deep finding intelligence and raw payload"
                                     >
                                       <Info size={12} /> Details
@@ -2047,13 +2047,14 @@ export default function InvestigationDetailPage() {
                                           fontWeight: 700,
                                           display: 'inline-flex',
                                           alignItems: 'center',
-                                          gap: '4px',
-                                          padding: '2px 8px',
+                                          gap: '3px',
+                                          padding: '3px 7px',
+                                          fontSize: '11px',
                                           textDecoration: 'none'
                                         }}
                                         title="Open verified location coordinates in Google Maps"
                                       >
-                                        <MapPin size={12} /> Google Maps ↗
+                                        <MapPin size={12} /> Maps
                                       </a>
                                     )}
 
@@ -2067,13 +2068,14 @@ export default function InvestigationDetailPage() {
                                           color: 'var(--color-accent)',
                                           display: 'inline-flex',
                                           alignItems: 'center',
-                                          gap: '4px',
-                                          padding: '2px 6px',
+                                          gap: '3px',
+                                          padding: '3px 7px',
+                                          fontSize: '11px',
                                           textDecoration: 'none'
                                         }}
                                         title="Verify clue directly on original OSINT source"
                                       >
-                                        <ExternalLink size={12} /> Verify Clue ↗
+                                        <ExternalLink size={12} /> Verify
                                       </a>
                                     )}
 
@@ -2082,7 +2084,7 @@ export default function InvestigationDetailPage() {
                                         to={`/investigate?q=${encodeURIComponent(pivot.target)}`}
                                         className="btn btn-xs btn-ghost"
                                         title={`Pivot to new investigation on ${pivot.target}`}
-                                        style={{ color: 'var(--color-accent)', padding: '2px 5px' }}
+                                        style={{ color: 'var(--color-accent)', padding: '3px 5px' }}
                                       >
                                         <Compass size={13} />
                                       </Link>
@@ -2092,7 +2094,7 @@ export default function InvestigationDetailPage() {
                                       type="button"
                                       onClick={() => setExpandedFinding(isExpanded ? null : f.id)}
                                       className="btn btn-ghost btn-xs"
-                                      style={{ padding: '2px 4px', color: 'var(--color-text-muted)' }}
+                                      style={{ padding: '3px 5px', color: 'var(--color-text-muted)' }}
                                       title={isExpanded ? 'Collapse inline raw data' : 'Expand inline raw data'}
                                     >
                                       {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -2103,7 +2105,7 @@ export default function InvestigationDetailPage() {
 
                               {isExpanded && (
                                 <tr key={`${f.id}-expanded`} style={{ background: 'var(--color-surface-elevated)' }}>
-                                  <td colSpan={7} style={{ padding: 'var(--space-4) var(--space-6)' }}>
+                                  <td colSpan={6} style={{ padding: 'var(--space-4) var(--space-6)' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
                                       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
                                         RAW ARTIFACT DATA (FIRST SEEN: {new Date(f.first_seen).toLocaleString()})

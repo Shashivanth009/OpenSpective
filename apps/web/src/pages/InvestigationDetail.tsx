@@ -165,12 +165,13 @@ export default function InvestigationDetailPage() {
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
+    a.target = '_blank';
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
       a.remove();
       window.URL.revokeObjectURL(url);
-    }, 250);
+    }, 4000);
   };
 
   const handleExport = async (format: 'json' | 'csv' | 'stix' | 'html' | 'pdf') => {
@@ -194,8 +195,10 @@ export default function InvestigationDetailPage() {
         return String(v);
       };
 
-      const targetSlug = safe(investigation.target, 'target').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const filename = `openspective-${targetSlug}-${investigation.id.slice(0, 8)}.${format === 'stix' ? 'stix21.json' : format}`;
+      const cleanTarget = safe(investigation.target, 'target').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const cleanId = safe(investigation.id).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+      const ext = format === 'stix' ? 'stix21.json' : format;
+      const filename = `openspective_${cleanTarget}_${cleanId}.${ext}`;
 
       if (format === 'pdf') {
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -583,8 +586,12 @@ export default function InvestigationDetailPage() {
           drawPageFooter(i, totalPages);
         }
 
-        const pdfBlob = doc.output('blob');
-        triggerDownload(pdfBlob, filename);
+        try {
+          doc.save(filename);
+        } catch {
+          const pdfBlob = new Blob([doc.output('arraybuffer')], { type: 'application/pdf' });
+          triggerDownload(pdfBlob, filename);
+        }
       } else if (format === 'json') {
         const reportData = {
           meta: {

@@ -161,19 +161,34 @@ export default function InvestigationDetailPage() {
   };
 
   const triggerDownload = (blob: Blob, filename: string) => {
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.style.display = 'none';
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      if (document.body.contains(a)) {
-        document.body.removeChild(a);
-      }
-      window.URL.revokeObjectURL(url);
-    }, 60000);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = reader.result as string;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (document.body.contains(a)) {
+          document.body.removeChild(a);
+        }
+      }, 2000);
+    };
+    reader.onerror = () => {
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (document.body.contains(a)) document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }, 60000);
+    };
+    reader.readAsDataURL(blob);
   };
 
   const handleExport = async (format: 'json' | 'csv' | 'stix' | 'html' | 'pdf') => {
@@ -588,9 +603,22 @@ export default function InvestigationDetailPage() {
           drawPageFooter(i, totalPages);
         }
 
-        // Save PDF with proper MIME and clean filename
-        const pdfBlob = doc.output('blob');
-        triggerDownload(pdfBlob, filename);
+        // Save PDF with clean filename via direct Data URI
+        try {
+          const dataUri = doc.output('datauristring');
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = dataUri;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            if (document.body.contains(a)) document.body.removeChild(a);
+          }, 3000);
+        } catch {
+          const pdfBlob = doc.output('blob');
+          triggerDownload(pdfBlob, filename);
+        }
       } else if (format === 'json') {
         const reportData = {
           meta: {

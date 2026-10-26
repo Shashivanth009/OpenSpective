@@ -134,19 +134,24 @@ export default function Layout({ minimal, showSidebar }: LayoutProps) {
 
           {/* Frosted Glass Sidebar */}
           <aside className={`sidebar glass-sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
-            <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {sidebarNav.map(({ to, icon: Icon, label }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={({ isActive }) =>
-                    `sidebar-link flex items-center gap-2${isActive ? ' active glow-border-accent' : ''}`
-                  }
-                >
-                  <Icon size={16} />
-                  <span>{label}</span>
-                </NavLink>
-              ))}
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              {sidebarNav.map(({ to, icon: Icon, label }) => {
+                const isCurrent = to === '/investigate'
+                  ? location.pathname === '/investigate' || location.pathname.startsWith('/investigations/')
+                  : location.pathname === to;
+                return (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    className={() =>
+                      `sidebar-link flex items-center gap-2${isCurrent ? ' active glow-border-accent' : ''}`
+                    }
+                  >
+                    <Icon size={16} />
+                    <span>{label}</span>
+                  </NavLink>
+                );
+              })}
             </nav>
 
             <div style={{ borderTop: '1px solid var(--glass-border-subtle)', marginTop: 'auto', paddingTop: '12px' }}>

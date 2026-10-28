@@ -3,8 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2024-10-22"
 compatibility_flags = ["nodejs_compat"]
 
-# Account ID - set via CLOUDFLARE_ACCOUNT_ID env var or wrangler login
-# account_id = "YOUR_ACCOUNT_ID"
+account_id = "2b3e0017eab2501fe5354547139d8637"
 
 [vars]
 ENVIRONMENT = "production"
@@ -16,21 +15,21 @@ FRONTEND_URL = "https://openspective.vercel.app"
 [[d1_databases]]
 binding = "DB"
 database_name = "openspective-db"
-database_id = "YOUR_D1_DATABASE_ID"
+database_id = "7d66c224-2824-4a00-ab5a-091fc0e07aab"
 migrations_dir = "../../migrations"
 
-# R2 Bucket binding
-[[r2_buckets]]
-binding = "REPORTS"
-bucket_name = "openspective-reports"
+# R2 Bucket binding (uncomment when R2 is enabled on Cloudflare account)
+# [[r2_buckets]]
+# binding = "REPORTS"
+# bucket_name = "openspective-reports"
 
 # AI binding
 [ai]
 binding = "AI"
 
-# Worker limits
-[limits]
-cpu_ms = 50000
+# Worker limits (uncomment when on a paid Cloudflare Workers plan)
+# [limits]
+# cpu_ms = 50000
 
 [dev]
 port = 8787

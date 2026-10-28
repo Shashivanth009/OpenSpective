@@ -2,8 +2,8 @@
 export interface Env {
   // D1 database
   DB: D1Database;
-  // R2 bucket for reports
-  REPORTS: R2Bucket;
+  // R2 bucket for reports (optional)
+  REPORTS?: R2Bucket;
   // Workers AI
   AI: Ai;
   // Secrets

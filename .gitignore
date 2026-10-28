@@ -20,3 +20,5 @@ Thumbs.db
 *.lock
 !package-lock.json
 worker-configuration.d.ts
+
+.vercel

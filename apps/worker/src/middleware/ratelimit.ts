@@ -42,10 +42,17 @@ export function rateLimit(config: RateLimitConfig) {
       const cached = await cache.match(cacheUrl);
 
       let count = 0;
+      let currentWindowStart = now;
+
       if (cached) {
-        const data = await cached.json() as { count: number; windowStart: number };
-        if (data.windowStart > windowStart) {
-          count = data.count;
+        try {
+          const data = (await cached.json()) as { count: number; windowStart: number };
+          if (data && data.windowStart && data.windowStart > windowStart) {
+            count = data.count;
+            currentWindowStart = data.windowStart; // Preserve original window start
+          }
+        } catch {
+          count = 0;
         }
       }
 
@@ -56,12 +63,13 @@ export function rateLimit(config: RateLimitConfig) {
         );
       }
 
-      // Update count
+      // Update count while preserving window start
       const newCount = count + 1;
-      const response = new Response(JSON.stringify({ count: newCount, windowStart: now }), {
+      const ttlSeconds = Math.max(1, Math.ceil((currentWindowStart + config.windowMs - now) / 1000));
+      const response = new Response(JSON.stringify({ count: newCount, windowStart: currentWindowStart }), {
         headers: {
           'Content-Type': 'application/json',
-          'Cache-Control': `max-age=${Math.ceil(config.windowMs / 1000)}`,
+          'Cache-Control': `max-age=${ttlSeconds}`,
         },
       });
       c.executionCtx?.waitUntil(cache.put(cacheUrl, response));
@@ -73,21 +81,21 @@ export function rateLimit(config: RateLimitConfig) {
   });
 }
 
-// Pre-configured limiters
+// Pre-configured limiters - generous limits for OSINT intelligence workflows
 export const investigationRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  maxRequests: 5,
+  maxRequests: 30, // 30 investigation creations per minute
   keyPrefix: 'inv',
 });
 
 export const authRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  maxRequests: 10,
+  maxRequests: 30,
   keyPrefix: 'auth',
 });
 
 export const apiRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  maxRequests: 60,
+  maxRequests: 300,
   keyPrefix: 'api',
 });

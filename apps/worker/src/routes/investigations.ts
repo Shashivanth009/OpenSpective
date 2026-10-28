@@ -164,7 +164,7 @@ investigationsRouter.post('/', investigationRateLimit, async (c) => {
 });
 
 // ---- GET /investigations ----
-investigationsRouter.get('/', apiRateLimit, async (c) => {
+investigationsRouter.get('/', async (c) => {
   const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10));
   const pageSize = Math.min(50, Math.max(1, parseInt(c.req.query('pageSize') ?? '20', 10)));
   const offset = (page - 1) * pageSize;
@@ -189,7 +189,7 @@ investigationsRouter.get('/', apiRateLimit, async (c) => {
 });
 
 // ---- GET /investigations/:id ----
-investigationsRouter.get('/:id', apiRateLimit, async (c) => {
+investigationsRouter.get('/:id', async (c) => {
   const { id } = c.req.param();
   const user = c.get('user');
 
@@ -283,7 +283,7 @@ investigationsRouter.delete('/', async (c) => {
 });
 
 // ---- GET /investigations/:id/findings ----
-investigationsRouter.get('/:id/findings', apiRateLimit, async (c) => {
+investigationsRouter.get('/:id/findings', async (c) => {
   const { id } = c.req.param();
   const user = c.get('user');
 
@@ -323,7 +323,7 @@ investigationsRouter.get('/:id/findings', apiRateLimit, async (c) => {
 });
 
 // ---- GET /investigations/:id/graph ----
-investigationsRouter.get('/:id/graph', apiRateLimit, async (c) => {
+investigationsRouter.get('/:id/graph', async (c) => {
   const { id } = c.req.param();
   const user = c.get('user');
 

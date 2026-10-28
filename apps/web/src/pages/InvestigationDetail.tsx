@@ -104,8 +104,13 @@ export default function InvestigationDetailPage() {
         setAiReport(invRes.aiAnalysis);
       }
       setFindings(findRes.data);
+      setError(null);
     } catch (err: any) {
-      setError(err?.message || 'Failed to load investigation details.');
+      if (!investigation) {
+        setError(err?.message || 'Failed to load investigation details.');
+      } else {
+        console.warn('Transient polling error:', err?.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -114,12 +119,12 @@ export default function InvestigationDetailPage() {
   useEffect(() => {
     fetchData();
 
-    // Auto-poll every 1000ms while running or queued for real-time telemetry updates
+    // Auto-poll every 2500ms while running or queued for real-time telemetry updates
     let timer: ReturnType<typeof setInterval> | undefined;
     if (investigation?.status === 'running' || investigation?.status === 'queued') {
       timer = setInterval(() => {
         fetchData();
-      }, 1000);
+      }, 2500);
     }
     return () => clearInterval(timer);
   }, [id, investigation?.status]);
@@ -1329,9 +1334,22 @@ export default function InvestigationDetailPage() {
           <AlertTriangle size={20} />
           <span>{error || 'Investigation not found.'}</span>
         </div>
-        <Link to="/dashboard" className="btn btn-secondary" style={{ marginTop: 'var(--space-4)' }}>
-          Back to Dashboard
-        </Link>
+        <div style={{ display: 'flex', gap: '8px', marginTop: 'var(--space-4)' }}>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setLoading(true);
+              fetchData();
+            }}
+            className="btn btn-primary"
+          >
+            Retry
+          </button>
+          <Link to="/dashboard" className="btn btn-secondary">
+            Back to Dashboard
+          </Link>
+        </div>
       </div>
     );
   }

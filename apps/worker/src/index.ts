@@ -22,12 +22,14 @@ app.use('*', secureHeaders({
 // ---- CORS ----
 app.use('/api/*', cors({
   origin: (origin, c) => {
-    const allowedOrigins = [
-      c.env.FRONTEND_URL ?? 'https://openspective.vercel.app',
-      'http://localhost:5173',
-      'http://localhost:3000',
-    ];
-    if (!origin || allowedOrigins.includes(origin)) return origin;
+    if (!origin) return '*';
+    const frontendUrl = c.env.FRONTEND_URL ?? 'https://openspective.vercel.app';
+    if (origin === frontendUrl) return origin;
+    if (origin === 'http://localhost:5173' || origin === 'http://localhost:3000' || origin === 'http://127.0.0.1:5173' || origin === 'http://127.0.0.1:3000') return origin;
+    // Allow vercel and cloudflare pages deployments
+    if (/^https:\/\/([a-zA-Z0-9_-]+\.)*vercel\.app$/.test(origin) || /^https:\/\/([a-zA-Z0-9_-]+\.)*pages\.dev$/.test(origin)) {
+      return origin;
+    }
     return null;
   },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

@@ -1,7 +1,14 @@
 // API client for OpenSpective frontend
 // Communicates with the Cloudflare Worker backend
 
-const API_BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
+const rawApiUrl = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '');
+const API_BASE = !rawApiUrl
+  ? '/api/v1'
+  : rawApiUrl.endsWith('/api/v1')
+  ? rawApiUrl
+  : rawApiUrl.endsWith('/api')
+  ? `${rawApiUrl}/v1`
+  : `${rawApiUrl}/api/v1`;
 
 // Stored auth token
 let _token: string | null = localStorage.getItem('os_token');
